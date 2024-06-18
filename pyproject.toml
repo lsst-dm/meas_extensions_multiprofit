@@ -31,8 +31,8 @@ keywords = [
 dependencies = [
     "astropy",
     "galsim",
-    "gauss2d",
-    "gauss2dfit",
+    "lsst-gauss2d",
+    "lsst-gauss2dfit",
     "lsst-multiprofit",
     "matplotlib",
     "numpy",

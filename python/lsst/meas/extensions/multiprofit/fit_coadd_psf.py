@@ -19,7 +19,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import gauss2d.fit as g2f
+import lsst.gauss2d.fit as g2f
 import lsst.pex.config as pexConfig
 import lsst.pipe.base as pipeBase
 import lsst.pipe.tasks.fit_coadd_psf as fitCP
@@ -89,12 +89,12 @@ class MultiProFitPsfTask(CatalogPsfFitter, fitCP.CoaddPsfFitSubTask):
 
     def initialize_model(
         self,
-        model: g2f.Model,
+        model: g2f.ModelD,
         config_data: CatalogPsfFitterConfigData,
         limits_x: g2f.LimitsD = None,
         limits_y: g2f.LimitsD = None,
     ) -> None:
-        """Initialize a Model for a single source row.
+        """Initialize a ModelD for a single source row.
 
         Parameters
         ----------

@@ -21,7 +21,7 @@
 
 import os
 
-import gauss2d.fit as g2f
+import lsst.gauss2d.fit as g2f
 import lsst.meas.extensions.multiprofit.fit_coadd_multiband as fitCMB
 import lsst.meas.extensions.multiprofit.fit_coadd_psf as fitCP
 import numpy as np
@@ -240,7 +240,6 @@ def source_fit_ser_shapelet_psf_results(
     source_fit_ser_config.action_psf = fitCMB.SourceTablePsfComponentsAction()
     task = fitCMB.MultiProFitSourceTask(config=source_fit_ser_config)
     results = task.run(catalog_multi=catalog, catexps=[catexp])
-    source_fit_ser_config.action_psf = fitCMB.PsfComponentsAction
     return results.output.to_pandas()
 
 

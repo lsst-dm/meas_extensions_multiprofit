@@ -24,8 +24,8 @@ import math
 from functools import cached_property
 from typing import Any, Iterable, Mapping, Sequence
 
-import gauss2d as g2
-import gauss2d.fit as g2f
+import lsst.gauss2d as g2
+import lsst.gauss2d.fit as g2f
 import lsst.pex.config as pexConfig
 import lsst.pipe.base as pipeBase
 import lsst.pipe.tasks.fit_coadd_multiband as fitMB
@@ -319,7 +319,7 @@ class CatalogExposurePsfs(fitMB.CatalogExposureInputs, CatalogExposureSourcesABC
                     param.value = math.sqrt(param.value**2 - sigma_subtract_sq)
         return psf_model
 
-    def get_source_observation(self, source, **kwargs) -> g2f.Observation:
+    def get_source_observation(self, source, **kwargs) -> g2f.ObservationD:
         if not kwargs.get("skip_flags"):
             if (not source["detect_isPrimary"]) or source["merge_peak_sky"]:
                 raise NotPrimaryError(f"source {source[self.config_fit.column_id]} has invalid flags for fit")
@@ -374,7 +374,7 @@ class CatalogExposurePsfs(fitMB.CatalogExposureInputs, CatalogExposureSourcesABC
 
         coordsys = g2.CoordinateSystem(1.0, 1.0, x_min_bbox, y_min_bbox)
 
-        obs = g2f.Observation(
+        obs = g2f.ObservationD(
             image=g2.ImageD(img, coordsys),
             sigma_inv=g2.ImageD(sigma_inv, coordsys),
             mask_inv=g2.ImageB(mask, coordsys),
@@ -450,7 +450,7 @@ class MultiProFitSourceTask(CatalogSourceFitterABC, fitMB.CoaddMultibandFitSubTa
 
     def initialize_model(
         self,
-        model: g2f.Model,
+        model: g2f.ModelD,
         source: Mapping[str, Any],
         catexps: list[CatalogExposureSourcesABC],
         values_init: Mapping[g2f.ParameterD, float] | None = None,

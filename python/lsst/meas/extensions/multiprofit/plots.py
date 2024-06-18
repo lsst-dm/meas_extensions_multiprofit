@@ -38,7 +38,7 @@ __all__ = [
     "ObjectTableBase",
     "TruthSummaryTable",
     "ObjectTable",
-    "ObjectTableCModel",
+    "ObjectTableCModelD",
     "ObjectTableMultiProFit",
     "ObjectTablePsf",
     "downselect_table",
@@ -52,7 +52,7 @@ Axes = matplotlib.axes.Axes | Iterable[matplotlib.axes.Axes]
 FigureAxes = tuple[Figure, Axes]
 
 
-class ObjectTableBase(ABC, pydantic.BaseModel):
+class ObjectTableBase(ABC, pydantic.BaseModelD):
     """Base class for retrieving columns from tract-based object tables."""
 
     model_config = pydantic.ConfigDict(arbitrary_types_allowed=True, frozen=True)
@@ -155,11 +155,11 @@ class ObjectTable(ObjectTableBase, ABC):
         return self.table["y"]
 
 
-class ObjectTableCModel(ObjectTable):
-    """Class for retrieving CModel fluxes from objectTable_tract."""
+class ObjectTableCModelD(ObjectTable):
+    """Class for retrieving CModelD fluxes from objectTable_tract."""
 
     def get_flux(self, band: str) -> np.ndarray:
-        return self.table[f"{band}_cModelFlux"]
+        return self.table[f"{band}_cModelDFlux"]
 
 
 class ObjectTableMultiProFit(ObjectTableBase):
@@ -360,7 +360,7 @@ def plot_blend(
     objects_primary = rebuilder.objects[rebuilder.objects["detect_isPrimary"] == True]  # noqa: E712
     kwargs_annotate_obs = dict(color="white", fontsize=14, ha="right", va="top")
     kwargs_scatter_obs = dict(c="white", marker="x", s=70)
-    table_within_cmodel = downselect_table_axis(ObjectTableCModel(table=objects_primary), ax_rgb)
+    table_within_cmodel = downselect_table_axis(ObjectTableCModelD(table=objects_primary), ax_rgb)
     labels_extended_model = ("C", "E")
     plot_objects(
         table_within_cmodel,
@@ -390,7 +390,7 @@ def plot_blend(
 
     for idx_child in idx_children:
         for name, matched in rebuilder.matches.items():
-            print(f"Model: {name}")
+            print(f"ModelD: {name}")
             rebuilder_child = matched.rebuilder
             is_dataloader = isinstance(rebuilder_child, DataLoader)
             is_scarlet = is_dataloader and (name == "scarlet")
