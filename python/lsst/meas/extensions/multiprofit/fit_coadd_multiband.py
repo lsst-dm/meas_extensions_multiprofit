@@ -41,9 +41,8 @@ __all__ = (
 import logging
 import math
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Mapping, Sequence
 from functools import cached_property
-from typing import Any, ClassVar
+from typing import Any, cast, ClassVar, Iterable, Mapping, Sequence
 
 import astropy.units as u
 import numpy as np
@@ -71,7 +70,7 @@ from lsst.multiprofit.modeller import Model
 from lsst.multiprofit.utils import frozen_arbitrary_allowed_config, get_params_uniq, set_config_from_dict
 from lsst.pex.config.configurableActions import ConfigurableAction, ConfigurableActionField
 
-from .errors import IsParentError, NotPrimaryError
+from .errors import IsBlendedError, IsParentError, NotPrimaryError
 from .input_config import InputConfig
 from .utils import get_spanned_image
 
@@ -538,18 +537,6 @@ class BasicModelInitializer(ModelInitializer):
         if kwargs:
             raise ValueError(f"Unexpected {kwargs=}")
         centroid_pixel_offset = config_data.config.centroid_pixel_offset
-        (cen_x, cen_y), (sig_x, sig_y, rho) = self.get_centroid_and_shape(
-            source,
-            catexps,
-            config_data,
-            values_init=values_init,
-        )
-        # If we couldn't get a shape at all, make it small and roundish
-        if not np.isfinite(rho):
-            # Note rho=0 (circular) is generally disfavoured by shape priors
-            # However, setting it to a non-zero value seems to make scipy
-            # fail to move off initial conditions, as do sizes below 2 pixels
-            sig_x, sig_y, rho = 2.0, 2.0, 0.0
 
         # Make restrictive centroid limits (intersection, not union)
         x_min, y_min, x_max, y_max = -np.inf, -np.inf, np.inf, np.inf
@@ -575,15 +562,37 @@ class BasicModelInitializer(ModelInitializer):
         else:
             catexps_obs = catexps
 
+        use_sky_coords: bool | None = None
+
         for idx_obs, observation in enumerate(model.data):
             coordsys = observation.image.coordsys
             catexp = catexps_obs[idx_obs]
             band = catexp.band
 
+            is_afw = isinstance(catexp, CatalogExposurePsfs)
+            use_sky_coords_obs = catexp.use_sky_coords if is_afw else True
+            if use_sky_coords is None:
+                use_sky_coords = use_sky_coords_obs
+            else:
+                if use_sky_coords != use_sky_coords_obs:
+                    raise ValueError(
+                        f"catexp with {band=} has {use_sky_coords_obs=}"
+                        f" but a previous one had {use_sky_coords=}"
+                    )
+
+            x_coordsys = (
+                coordsys.x_min,
+                coordsys.x_min + float(observation.image.n_cols)*coordsys.dx1,
+            )
+            y_coordsys = (
+                coordsys.y_min,
+                coordsys.y_min + float(observation.image.n_rows)*coordsys.dy2,
+            )
+
             x_min = max(x_min, coordsys.x_min)
             y_min = max(y_min, coordsys.y_min)
-            x_max = min(x_max, coordsys.x_min + float(observation.image.n_cols))
-            y_max = min(y_max, coordsys.y_min + float(observation.image.n_rows))
+            x_max = min(x_max, max(x_coordsys))
+            y_max = min(y_max, max(y_coordsys))
 
             flux_total = np.nansum(observation.image.data[observation.mask_inv.data])
 
@@ -600,8 +609,10 @@ class BasicModelInitializer(ModelInitializer):
                 if not (flux_init > 0):
                     flux_init = row["slot_PsfFlux_instFlux"]
 
-            calib = catexp.exposure.photoCalib
-            flux_init = calib.instFluxToNanojansky(flux_init) if (flux_init > 0) else max(flux_total, 1.0)
+            if is_afw:
+                calib = catexp.exposure.photoCalib
+                flux_init = calib.instFluxToNanojansky(flux_init)
+            flux_init = flux_init if (flux_init > 0) else max(flux_total, 1.0)
             if set_flux_limits:
                 flux_max = 10 * max((flux_init, flux_total))
                 flux_min = min(flux_limit_min, flux_max / 1000)
@@ -613,15 +624,39 @@ class BasicModelInitializer(ModelInitializer):
             fluxes_init[observation.channel] = flux_init / n_components
             fluxes_limits[observation.channel] = (flux_min, flux_max)
 
+        use_sky_coords = use_sky_coords is True
+        (cen_x, cen_y), (sig_x, sig_y, rho) = self.get_centroid_and_shape(
+            source,
+            catexps,
+            config_data,
+            values_init=values_init,
+        )
+        # If we couldn't get a shape at all, make it small and roundish
+        if not np.isfinite(rho):
+            # Note rho=0 (circular) is generally disfavoured by shape priors
+            # However, setting it to a non-zero value seems to make scipy
+            # fail to move off initial conditions, as do sizes below 2 pixels
+            sig_x, sig_y, rho = 2.0, 2.0, 0.0
+
         if not np.isfinite(cen_x):
             cen_x = observation.image.n_cols / 2.0
-        else:
+        elif use_sky_coords:
             cen_x -= centroid_pixel_offset
         if not np.isfinite(cen_y):
             # TODO: Add bbox coords or remove
             cen_y = observation.image.n_rows / 2.0
-        else:
+        elif use_sky_coords:
             cen_y -= centroid_pixel_offset
+
+        if use_sky_coords:
+            ra, dec = self.wcs.pixelToSky(cen_x, cen_y)
+            cen_x = ra.asDegrees()
+            cen_y = dec.asDegrees()
+            # TODO: Make sure this is in degrees
+            cd_wcs = self.wcs.getCdMatrix()
+            # TODO: apply rotation matrix without assumptions
+            sig_x *= np.abs(cd_wcs[0, 0])
+            sig_y *= np.abs(cd_wcs[1, 1])
 
         # An R_eff larger than the box size is problematic. This should also
         # stop unreasonable size proposals; a log10 transform isn't enough.
@@ -858,6 +893,10 @@ class MultiProFitSourceConfig(CatalogSourceFitterConfig, fitMB.CoaddMultibandFit
         default={},
         dictCheck=lambda x: len(set(x.values())) == len(x.values()),
     )
+    fit_isolated_only = pexConfig.Field[bool](
+        doc="Fit isolated objects (parent with n_child=1) only",
+        default=False,
+    )
     mask_names_zero = pexConfig.ListField[str](
         doc="Mask bits to mask out",
         default=["BAD", "EDGE", "SAT", "NO_DATA"],
@@ -879,6 +918,13 @@ class MultiProFitSourceConfig(CatalogSourceFitterConfig, fitMB.CoaddMultibandFit
         # data-driven priors are re-implemented (DM-4xxxx)
         return set()
 
+    def make_model_data(
+        self,
+        idx_row: int,
+        catexps: list[CatalogExposureSourcesABC],
+    ) -> tuple[g2f.DataD, list[g2f.PsfModel]]:
+        return super().make_model_data(idx_row, catexps)
+
     def requires_psf(self):
         """Return whether the PSF action is not None."""
         return type(self.action_psf) is PsfComponentsActionBase
@@ -888,6 +934,7 @@ class MultiProFitSourceConfig(CatalogSourceFitterConfig, fitMB.CoaddMultibandFit
         self.defer_radec_conversion = True
         self.compute_radec_covariance = True
         self.flag_errors = {
+            IsBlendedError.column_name(): "IsBlendedError",
             IsParentError.column_name(): "IsParentError",
             NoDataError.column_name(): "NoDataError",
             NotPrimaryError.column_name(): "NotPrimaryError",
@@ -905,6 +952,10 @@ class CatalogExposurePsfs(fitMB.CatalogExposureInputs, CatalogExposureSourcesABC
 
     channel: g2f.Channel = pydantic.Field(title="Channel for the image's band")
     config_fit: MultiProFitSourceConfig = pydantic.Field(title="Config for fitting options")
+    use_sky_coords: bool = pydantic.Field(
+        title="Whether to use RA/dec in degrees for the coordinate system",
+        default=False,
+    )
 
     @cached_property
     def _psf_flux_params(self) -> tuple[list[g2f.ParameterD], bool]:
@@ -1000,6 +1051,16 @@ class CatalogExposurePsfs(fitMB.CatalogExposureInputs, CatalogExposureSourcesABC
         return psf_model
 
     def get_source_observation(self, source, **kwargs) -> g2f.ObservationD | None:
+        parent = source["parent"]
+        is_deblended_child = parent != 0
+        if self.config_fit.fit_isolated_only:
+            if is_deblended_child:
+                n_children = self.catalog.find(parent)["deblend_nChild"]
+                raise IsBlendedError(
+                    f"source {source[self.config_fit.column_id]} is part of a blend with {n_children}"
+                    f" children; not fitting"
+                )
+
         footprint = source.getFootprint()
         bbox = footprint.getBBox()
         if not (bbox.getArea() > 0):
@@ -1012,8 +1073,6 @@ class CatalogExposurePsfs(fitMB.CatalogExposureInputs, CatalogExposureSourcesABC
             bitmask |= bitval
         mask = ((mask.array & bitmask) != 0) & (spans != 0)
         mask = ~mask
-
-        is_deblended_child = source["parent"] != 0
 
         img, _, sigma_inv = get_spanned_image(
             exposure=self.exposure,
@@ -1052,7 +1111,14 @@ class CatalogExposurePsfs(fitMB.CatalogExposureInputs, CatalogExposureSourcesABC
         mask[~np.isfinite(img) | ~np.isfinite(sigma_inv)] = False
         sigma_inv[~mask] = 0
 
-        coordsys = g2.CoordinateSystem(1.0, 1.0, x_min_bbox, y_min_bbox)
+        if self.use_sky_coords:
+            wcs = self.exposure.wcs
+            # TODO: Get centroid_pixel_offset instead
+            ra, dec = wcs.pixelToSky(x_min_bbox-0.5, y_min_bbox-0.5)
+            cd_wcs = wcs.getCdMatrix()
+            coordsys = g2.CoordinateSystem(cd_wcs[0, 0], cd_wcs[1, 1], ra.asDegrees(), dec.asDegrees())
+        else:
+            coordsys = g2.CoordinateSystem(1.0, 1.0, x_min_bbox, y_min_bbox)
 
         obs = g2f.ObservationD(
             image=g2.ImageD(img, coordsys),
@@ -1112,7 +1178,9 @@ class MultiProFitSourceFitter(CatalogSourceFitterABC):
         if errors_expected is None:
             errors_expected = {}
         if add_missing_errors:
-            for error_catalog in (IsParentError, NoDataError, NotPrimaryError, PsfRebuildFitFlagError):
+            for error_catalog in (
+                IsBlendedError, IsParentError, NoDataError, NotPrimaryError, PsfRebuildFitFlagError,
+            ):
                 if error_catalog not in errors_expected:
                     errors_expected[error_catalog] = error_catalog.column_name()
         super().__init__(wcs=wcs, errors_expected=errors_expected, **kwargs)
@@ -1388,8 +1456,14 @@ class MultiProFitSourceTask(fitMB.CoaddMultibandFitSubTask):
         if n_catexps == 0:
             raise ValueError("Must provide at least one catexp")
         catexps_conv: list[CatalogExposurePsfs] = [None] * n_catexps
-        channels = [g2f.Channel.get(catexp.band) for catexp in catexps]
-        config_data = CatalogSourceFitterConfigData(channels=channels, config=self.config)
+        channels: list[g2f.Channel] = [None] * n_catexps
+        config = cast(self.config, MultiProFitSourceConfig)
+        for idx, catexp in enumerate(catexps):
+            if not isinstance(catexp, CatalogExposurePsfs):
+                catexp = fitter.make_CatalogExposurePsfs(catexp, config=config)
+            catexps_conv[idx] = catexp
+            channels[idx] = catexp.channel
+        config_data = CatalogSourceFitterConfigData(channels=channels, config=config)
         if fitter is None:
             inputs_init = kwargs.get("inputs_init")
             if inputs_init:
@@ -1399,14 +1473,35 @@ class MultiProFitSourceTask(fitMB.CoaddMultibandFitSubTask):
             fitter = self.make_default_fitter(
                 catalog_multi=catalog_multi, catexps=catexps, config_data=config_data, **inputs_init
             )
-        for idx, catexp in enumerate(catexps):
-            if not isinstance(catexp, CatalogExposurePsfs):
-                catexp = fitter.make_CatalogExposurePsfs(catexp, config=self.config)
-            catexps_conv[idx] = catexp
         catalog = fitter.fit(
             catalog_multi=catalog_multi, catexps=catexps_conv, config_data=config_data, **kwargs
         )
         for name_in, name_out in self.config.columns_copy.items():
             catalog[name_out] = catalog_multi[name_in]
             catalog[name_out].description = catalog_multi.schema.find(name_in).field.getDoc()
+        # Fitting was successful; perform some validation here
+        # raising must be avoided because the fit may have taken a long time
+        # to complete and it's better to return something and warn about
+        # potential issues than to abort and return nothing
+        if not config.fit_isolated_only:
+            names_column = [k for k, v in config.flag_errors.items() if v == "IsBlendedError"]
+            if len(names_column) == 1:
+                name_column = f"{config.prefix_column}{names_column[0]}"
+                if name_column not in catalog:
+                    self.log.warning(
+                        f"Couldn't find {name_column} in {catalog.columns=}; can't validate and delete"
+                        f" unnecessary column with {config.fit_isolated_only=}"
+                    )
+                else:
+                    if np.any(catalog[name_column]):
+                        self.log.warning(
+                            f"catalog[{name_column}] has true entries despite {config.fit_isolated_only=},"
+                            f" skipping deleting what should be a redundant column"
+                        )
+                    else:
+                        del catalog[name_column]
+            else:
+                self.log.warning(
+                    f"Found {names_column=} with {config.fit_isolated_only=}; should be exactly 1"
+                )
         return pipeBase.Struct(output=astropy_to_arrow(catalog))

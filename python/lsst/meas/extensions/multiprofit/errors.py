@@ -22,6 +22,14 @@
 from lsst.multiprofit.errors import CatalogError
 
 
+class IsBlendedError(CatalogError):
+    """RuntimeError for objects that are blended and shouldn't be fit."""
+
+    @classmethod
+    def column_name(cls) -> str:
+        return "is_blended_flag"
+
+
 class IsParentError(CatalogError):
     """RuntimeError for objects that are parents and shouldn't be fit."""
 
