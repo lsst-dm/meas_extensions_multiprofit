@@ -43,7 +43,7 @@ from lsst.pipe.tasks.fit_coadd_multiband import (
 from lsst.skymap import BaseSkyMap, TractInfo
 
 from .fit_coadd_multiband import (
-    CatalogExposurePsfs,
+    CatalogExposureSourcesABC,
     CatalogSourceFitterConfigData,
     MultiProFitSourceConfig,
     MultiProFitSourceTask,
@@ -148,7 +148,7 @@ class DataLoader(pydantic.BaseModel):
 
     model_config = pydantic.ConfigDict(arbitrary_types_allowed=True, frozen=True)
 
-    catexps: list[CatalogExposurePsfs] = pydantic.Field(
+    catexps: list[CatalogExposureSourcesABC] = pydantic.Field(
         doc="List of MultiProFit catalog-exposure-psf objects used to fit PSF-convolved models",
     )
     catalog_multi: afwTable.SourceCatalog = pydantic.Field(
