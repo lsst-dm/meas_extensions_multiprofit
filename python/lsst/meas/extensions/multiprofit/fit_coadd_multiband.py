@@ -957,6 +957,12 @@ class CatalogExposurePsfs(fitMB.CatalogExposureInputs, CatalogExposureSourcesABC
         default=False,
     )
 
+    def _get_dx1(self):
+        return self.exposure.wcs.getCdMatrix()[0, 0]
+
+    def _get_dy2(self):
+        return self.exposure.wcs.getCdMatrix()[1, 1]
+
     @cached_property
     def _psf_flux_params(self) -> tuple[list[g2f.ParameterD], bool]:
         psf_model = self.psf_model_data.psf_model
@@ -1038,16 +1044,21 @@ class CatalogExposurePsfs(fitMB.CatalogExposureInputs, CatalogExposureSourcesABC
                 return None
 
         sigma_subtract = self.config_fit.psf_sigma_subtract
-        if sigma_subtract > 0:
+        do_sigma_subtract = sigma_subtract > 0
+        if self.use_sky_coords or do_sigma_subtract:
             sigma_subtract_sq = sigma_subtract * sigma_subtract
             # 1/10 of PSF sigma should suffice as a minimum size
             sigma_min_sq = sigma_subtract_sq / 100.0
             for param in self.psf_model_data.parameters.values():
-                if isinstance(
-                    param,
-                    g2f.SigmaXParameterD | g2f.SigmaYParameterD | g2f.ReffXParameterD | g2f.ReffYParameterD,
-                ):
-                    param.value = math.sqrt(max(param.value**2 - sigma_subtract_sq, sigma_min_sq))
+                is_x = isinstance(param, g2f.SizeXParameterD)
+                is_y = isinstance(param, g2f.SizeYParameterD)
+                if is_x or is_y:
+                    value = param.value
+                    if do_sigma_subtract:
+                        value = math.sqrt(max(param.value ** 2 - sigma_subtract_sq, sigma_min_sq))
+                    if self.use_sky_coords:
+                        value *= abs(self._get_dx1()) if is_x else abs(self._get_dy2())
+                    param.value = value
         return psf_model
 
     def get_source_observation(self, source, **kwargs) -> g2f.ObservationD | None:
@@ -1115,8 +1126,7 @@ class CatalogExposurePsfs(fitMB.CatalogExposureInputs, CatalogExposureSourcesABC
             wcs = self.exposure.wcs
             # TODO: Get centroid_pixel_offset instead
             ra, dec = wcs.pixelToSky(x_min_bbox-0.5, y_min_bbox-0.5)
-            cd_wcs = wcs.getCdMatrix()
-            coordsys = g2.CoordinateSystem(cd_wcs[0, 0], cd_wcs[1, 1], ra.asDegrees(), dec.asDegrees())
+            coordsys = g2.CoordinateSystem(self._get_dx1(), self._get_dy2(), ra.asDegrees(), dec.asDegrees())
         else:
             coordsys = g2.CoordinateSystem(1.0, 1.0, x_min_bbox, y_min_bbox)
 
