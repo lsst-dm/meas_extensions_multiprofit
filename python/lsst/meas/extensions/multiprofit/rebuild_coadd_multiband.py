@@ -46,6 +46,7 @@ from .fit_coadd_multiband import (
     CatalogExposureSourcesABC,
     CatalogSourceFitterConfigData,
     MultiProFitSourceConfig,
+    MultiProFitSourceFitter,
     MultiProFitSourceTask,
 )
 
@@ -264,7 +265,8 @@ class ModelRebuilder(DataLoader):
     """
 
     fit_results: astropy.table.Table = pydantic.Field(doc="Multiprofit model fit results")
-    task_fit: MultiProFitSourceTask = pydantic.Field(doc="The task")
+    fitter: MultiProFitSourceFitter = pydantic.Field(doc="The fitter used by the task to fit")
+    task_fit: MultiProFitSourceTask = pydantic.Field(doc="The task used to generate the outputs")
 
     @cached_property
     def config_data(self) -> CatalogSourceFitterConfigData:
@@ -364,7 +366,7 @@ class ModelRebuilder(DataLoader):
         """
         if config_data is None:
             config_data = self.config_data
-        model = self.task_fit.get_model(
+        model = self.fitter.get_model(
             idx_row=idx_row,
             catalog_multi=self.catalog_multi,
             catexps=self.catexps,
