@@ -43,6 +43,7 @@ from lsst.pipe.tasks.fit_coadd_multiband import (
 from lsst.skymap import BaseSkyMap, TractInfo
 
 from .fit_coadd_multiband import (
+    CatalogExposurePsfs,
     CatalogExposureSourcesABC,
     CatalogSourceFitterConfigData,
     MultiProFitSourceConfig,

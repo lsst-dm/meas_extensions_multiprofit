@@ -34,7 +34,7 @@ import pydantic
 
 from lsst.multiprofit.plotting import bands_weights_lsst, plot_model_rgb
 
-from .rebuild_coadd_multiband import DataLoader, PatchCoaddRebuilder
+from .rebuild_coadd_multiband import DataLoader, ModelRebuilder, PatchCoaddRebuilder
 
 __all__ = [
     "ObjectTable",
@@ -167,6 +167,10 @@ class ObjectTableCModel(ObjectTable):
 class ObjectTableMultiProFit(ObjectTableBase):
     """Class for retrieving fluxes from objectTable_tract_multiprofit."""
 
+    centroid_prefixed: bool = pydantic.Field(
+        doc="Whether the centroid fields are prefixed by the model name",
+        default=False,
+    )
     name_model: str = pydantic.Field(doc="The name of the MultiProFit model")
     prefix_col: str = pydantic.Field(doc="The prefix for object fit columns", default="mpf_")
 
@@ -183,10 +187,10 @@ class ObjectTableMultiProFit(ObjectTableBase):
         return np.zeros(len(self.table), dtype=bool)
 
     def get_x(self):
-        return self.table[f"{self.prefix_col}{self.name_model}_cen_x"]
+        return self.table[f"{self.prefix_col}{f'{self.name_model}_' if self.centroid_prefixed else ''}cen_x"]
 
     def get_y(self):
-        return self.table[f"{self.prefix_col}{self.name_model}_cen_y"]
+        return self.table[f"{self.prefix_col}{f'{self.name_model}_' if self.centroid_prefixed else ''}cen_y"]
 
 
 class ObjectTablePsf(ObjectTable):
@@ -307,8 +311,9 @@ def plot_blend(
     idx_row_parent: int,
     weights: dict[str, float] = None,
     table_ref_type: type = TruthSummaryTable,
-    kwargs_plot_parent: dict[str, Any] = None,
-    kwargs_plot_children: dict[str, Any] = None,
+    kwargs_plot_parent: dict[str, Any] | None = None,
+    kwargs_plot_children: dict[str, Any] | None = None,
+    kwargs_table_ref: dict[str, Any] | None = None,
 ) -> tuple[Figure, Axes, Figure, Axes]:
     """Plot an image of an entire blend and its deblended children.
 
@@ -326,6 +331,8 @@ def plot_blend(
         Keyword arguments to pass to make RGB plots of the parent blend.
     kwargs_plot_children
         Keyword arguments to pass to make RGB plots of deblended children.
+    kwargs_table_ref
+        Keyword arguments to pass to init table_ref_type.
 
     Returns
     -------
@@ -342,6 +349,8 @@ def plot_blend(
         kwargs_plot_parent = {}
     if kwargs_plot_children is None:
         kwargs_plot_children = {}
+    if kwargs_table_ref is None:
+        kwargs_table_ref = {}
     if weights is None:
         weights = bands_weights_lsst
 
@@ -360,7 +369,9 @@ def plot_blend(
         plot_chi_hist=False,
         **kwargs_plot_parent,
     )
-    table_within_ref = downselect_table_axis(table_ref_type(table=rebuilder.reference), ax_rgb)
+    table_within_ref = downselect_table_axis(
+        table_ref_type(table=rebuilder.reference, **kwargs_table_ref), ax_rgb,
+    )
     plot_objects(table_within_ref, ax_rgb, weights, table_downselected=True)
 
     objects_primary = rebuilder.objects[rebuilder.objects["detect_isPrimary"] == True]  # noqa: E712
@@ -404,19 +415,25 @@ def plot_blend(
             is_scarlet = is_dataloader and (name == "scarlet")
             if is_scarlet or rebuilder_child:
                 try:
-                    if is_dataloader:
+                    if isinstance(rebuilder_child, ModelRebuilder):
+                        model = rebuilder_child.fitter.get_model(
+                            idx_child, catalog_multi=cat_ref, catexps=rebuilder_child.catexps,
+                            config_data=rebuilder_child.config_data,
+                            results=objects_mpf,
+                        )
+                        observations = None
+                    else:
                         model = None
                         observations = rebuilder_child.load_deblended_object(idx_child)
-                    else:
-                        model = rebuilder_child.make_model(idx_child)
-                        observations = None
+
+                    kwargs_obs = {"observations": observations} if observations is not None else {}
 
                     _, ax_rgb_c, *_ = plot_model_rgb(
                         model=model,
                         weights=weights,
                         plot_singleband=False,
                         plot_chi_hist=(not is_dataloader) and plot_chi_hist,
-                        observations=observations,
+                        **kwargs_obs,
                         **kwargs_plot_children,
                     )
                     ax_rgb_c0 = ax_rgb_c[0][0]
