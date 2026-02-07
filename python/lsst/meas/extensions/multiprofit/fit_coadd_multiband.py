@@ -431,6 +431,43 @@ class BasicModelInitializer(ModelInitializer):
                 priors_shape.append(prior)
         return tuple(priors_gauss), tuple(priors_shape)
 
+    def convert_coordinates(self, cen_x: float, cen_y: float, sig_x: float, sig_y: float, rho: float):
+        """Convert pixel to sky coordinates.
+
+        Parameters
+        ----------
+        cen_x
+            The x-axis pixel centroid.
+        cen_y
+            The y-axis pixel centroid.
+        sig_x
+            The uncertainty on the x-axis pixel centroid.
+        sig_y
+            The uncertainty on the y-axis pixel centroid.
+        rho
+            The x-y axis correlation parameter.
+
+        Returns
+        -------
+        ra
+            The right ascension in degrees.
+        dec
+            The declination in degrees.
+        sig_ra
+            The uncertainty on the right ascension.
+        sig_ra
+            The uncertainty on the declination.
+        rho
+            The RA-dec axis correlation parameter.
+        """
+        ra, dec = (x.asDegrees() for x in self.wcs.pixelToSky(cen_x, cen_y))
+        # TODO: Make sure this is in degrees
+        cd_wcs = self.wcs.getCdMatrix()
+        # TODO: apply rotation matrix without assumptions
+        sig_x *= np.abs(cd_wcs[0, 0])
+        sig_y *= np.abs(cd_wcs[1, 1])
+        return ra, dec, sig_x, sig_y, rho
+
     def get_centroid_and_shape(
         self,
         source: Mapping[str, Any],
@@ -487,6 +524,41 @@ class BasicModelInitializer(ModelInitializer):
             rho = np.clip((source["slot_Shape_xy"] - psf_xy * psf_factor_shrink) / sig_xy, rho_min, rho_max)
         shape = sig_x, sig_y, rho
         return centroid, shape
+
+    def get_flux_init(self, source: Mapping[str, Any], catexp: CatalogExposureSourcesABC, is_afw: bool):
+        """Get a reasonable initial flux.
+
+        Parameters
+        ----------
+        source
+            The source to initialize.
+        catexp
+            The catalog-exposure pair.
+        is_afw
+            Whether the data are lsst.afw Exposure/SourceCatalog instances.
+
+        Returns
+        -------
+        flux_init
+            The initial flux in this exposure.
+        """
+        if source.get(f"merge_measurement_{catexp.band}") is not None:
+            row = source
+        else:
+            row = catexp.catalog.find(source["id"])
+
+        if not row["base_SdssShape_flag"]:
+            flux_init = row["base_SdssShape_instFlux"]
+        else:
+            flux_init = row["slot_GaussianFlux_instFlux"]
+            if not (flux_init > 0):
+                flux_init = row["slot_PsfFlux_instFlux"]
+
+        if isinstance(catexp, CatalogExposurePsfs):
+            calib = catexp.exposure.photoCalib
+            flux_init = calib.instFluxToNanojansky(flux_init)
+
+        return flux_init
 
     def get_params_init(self, model: Model) -> tuple[g2f.ParameterD]:
         """Return the free and/or centroid parameters for a model.
@@ -582,11 +654,11 @@ class BasicModelInitializer(ModelInitializer):
 
             x_coordsys = (
                 coordsys.x_min,
-                coordsys.x_min + float(observation.image.n_cols)*coordsys.dx1,
+                coordsys.x_min + float(observation.image.n_cols) * coordsys.dx1,
             )
             y_coordsys = (
                 coordsys.y_min,
-                coordsys.y_min + float(observation.image.n_rows)*coordsys.dy2,
+                coordsys.y_min + float(observation.image.n_rows) * coordsys.dy2,
             )
 
             x_min = max(x_min, coordsys.x_min)
@@ -595,23 +667,8 @@ class BasicModelInitializer(ModelInitializer):
             y_max = min(y_max, max(y_coordsys))
 
             flux_total = np.nansum(observation.image.data[observation.mask_inv.data])
+            flux_init = self.get_flux_init(source, catexp, is_afw=is_afw)
 
-            column_ref = f"merge_measurement_{band}"
-            if column_ref in source.schema.getNames() and source[column_ref]:
-                row = source
-            else:
-                row = catexp.catalog.find(source["id"])
-
-            if not row["base_SdssShape_flag"]:
-                flux_init = row["base_SdssShape_instFlux"]
-            else:
-                flux_init = row["slot_GaussianFlux_instFlux"]
-                if not (flux_init > 0):
-                    flux_init = row["slot_PsfFlux_instFlux"]
-
-            if is_afw:
-                calib = catexp.exposure.photoCalib
-                flux_init = calib.instFluxToNanojansky(flux_init)
             flux_init = flux_init if (flux_init > 0) else max(flux_total, 1.0)
             if set_flux_limits:
                 flux_max = 10 * max((flux_init, flux_total))
@@ -649,14 +706,7 @@ class BasicModelInitializer(ModelInitializer):
             cen_y -= centroid_pixel_offset
 
         if use_sky_coords:
-            ra, dec = self.wcs.pixelToSky(cen_x, cen_y)
-            cen_x = ra.asDegrees()
-            cen_y = dec.asDegrees()
-            # TODO: Make sure this is in degrees
-            cd_wcs = self.wcs.getCdMatrix()
-            # TODO: apply rotation matrix without assumptions
-            sig_x *= np.abs(cd_wcs[0, 0])
-            sig_y *= np.abs(cd_wcs[1, 1])
+            cen_x, cen_y, sig_x, sig_y, rho = self.convert_coordinates(cen_x, cen_y, sig_x, sig_y, rho)
 
         # An R_eff larger than the box size is problematic. This should also
         # stop unreasonable size proposals; a log10 transform isn't enough.
@@ -1125,7 +1175,7 @@ class CatalogExposurePsfs(fitMB.CatalogExposureInputs, CatalogExposureSourcesABC
         if self.use_sky_coords:
             wcs = self.exposure.wcs
             # TODO: Get centroid_pixel_offset instead
-            ra, dec = wcs.pixelToSky(x_min_bbox-0.5, y_min_bbox-0.5)
+            ra, dec = wcs.pixelToSky(x_min_bbox - 0.5, y_min_bbox - 0.5)
             coordsys = g2.CoordinateSystem(self._get_dx1(), self._get_dy2(), ra.asDegrees(), dec.asDegrees())
         else:
             coordsys = g2.CoordinateSystem(1.0, 1.0, x_min_bbox, y_min_bbox)
