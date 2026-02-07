@@ -1188,12 +1188,26 @@ class MultiProFitSourceFitter(CatalogSourceFitterABC):
         if errors_expected is None:
             errors_expected = {}
         if add_missing_errors:
-            for error_catalog in (
-                IsBlendedError, IsParentError, NoDataError, NotPrimaryError, PsfRebuildFitFlagError,
-            ):
-                if error_catalog not in errors_expected:
-                    errors_expected[error_catalog] = error_catalog.column_name()
+            self.add_missing_errors(errors_expected)
         super().__init__(wcs=wcs, errors_expected=errors_expected, **kwargs)
+
+    @classmethod
+    def add_missing_errors(
+        cls,
+        errors_expected: dict[str, Exception] | None = None,
+    ) -> dict[str, Exception]:
+        if errors_expected is None:
+            errors_expected = {}
+        for error_catalog in (
+            IsBlendedError,
+            IsParentError,
+            NoDataError,
+            NotPrimaryError,
+            PsfRebuildFitFlagError,
+        ):
+            if error_catalog not in errors_expected:
+                errors_expected[error_catalog] = error_catalog.column_name()
+        return errors_expected
 
     def copy_centroid_errors(
         self,
