@@ -370,7 +370,8 @@ def plot_blend(
         **kwargs_plot_parent,
     )
     table_within_ref = downselect_table_axis(
-        table_ref_type(table=rebuilder.reference, **kwargs_table_ref), ax_rgb,
+        table_ref_type(table=rebuilder.reference, **kwargs_table_ref),
+        ax_rgb,
     )
     plot_objects(table_within_ref, ax_rgb, weights, table_downselected=True)
 
@@ -417,7 +418,9 @@ def plot_blend(
                 try:
                     if isinstance(rebuilder_child, ModelRebuilder):
                         model = rebuilder_child.fitter.get_model(
-                            idx_child, catalog_multi=cat_ref, catexps=rebuilder_child.catexps,
+                            idx_child,
+                            catalog_multi=cat_ref,
+                            catexps=rebuilder_child.catexps,
                             config_data=rebuilder_child.config_data,
                             results=objects_mpf,
                         )

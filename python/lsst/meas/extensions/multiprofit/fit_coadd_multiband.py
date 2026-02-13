@@ -1105,7 +1105,7 @@ class CatalogExposurePsfs(fitMB.CatalogExposureInputs, CatalogExposureSourcesABC
                 if is_x or is_y:
                     value = param.value
                     if do_sigma_subtract:
-                        value = math.sqrt(max(param.value ** 2 - sigma_subtract_sq, sigma_min_sq))
+                        value = math.sqrt(max(param.value**2 - sigma_subtract_sq, sigma_min_sq))
                     if self.use_sky_coords:
                         value *= abs(self._get_dx1()) if is_x else abs(self._get_dy2())
                     param.value = value
