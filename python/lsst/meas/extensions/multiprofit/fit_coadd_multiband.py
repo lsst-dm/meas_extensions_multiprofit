@@ -23,6 +23,9 @@ __all__ = (
     "BasicModelInitializer",
     "CachedBasicModelInitializer",
     "CatalogExposurePsfs",
+    "CatalogExposurePsfs",
+    "CatalogExposureSourcesDataclassConfig",
+    "CatalogExposureSourcesWcsBase",
     "InitialInputData",
     "MagnitudeDependentSizePriorConfig",
     "MakeBasicInitializerAction",
@@ -41,15 +44,15 @@ __all__ = (
 import logging
 import math
 from abc import ABC, abstractmethod
+from collections.abc import Iterable, Mapping, Sequence
 from functools import cached_property
-from typing import Any, cast, ClassVar, Iterable, Mapping, Sequence
+from typing import Any, ClassVar, cast
 
 import astropy.units as u
 import numpy as np
 import pydantic
 from astropy.table import Table
 
-import lsst.afw.geom
 import lsst.afw.table as afwTable
 import lsst.gauss2d as g2
 import lsst.gauss2d.fit as g2f
@@ -59,7 +62,7 @@ import lsst.pipe.tasks.fit_coadd_multiband as fitMB
 import lsst.utils.timer as utilsTimer
 from lsst.daf.butler.formatters.parquet import astropy_to_arrow
 from lsst.multiprofit.errors import NoDataError, PsfRebuildFitFlagError
-from lsst.multiprofit.fitting.fit_psf import CatalogPsfFitterConfig, CatalogPsfFitterConfigData
+from lsst.multiprofit.fitting.fit_psf import CatalogPsfFitterConfigData
 from lsst.multiprofit.fitting.fit_source import (
     CatalogExposureSourcesABC,
     CatalogSourceFitterABC,
@@ -67,15 +70,18 @@ from lsst.multiprofit.fitting.fit_source import (
     CatalogSourceFitterConfigData,
 )
 from lsst.multiprofit.modeller import Model
-from lsst.multiprofit.utils import frozen_arbitrary_allowed_config, get_params_uniq, set_config_from_dict
+from lsst.multiprofit.utils import frozen_arbitrary_allowed_config, get_params_uniq
 from lsst.pex.config.configurableActions import ConfigurableAction, ConfigurableActionField
 
 from .errors import IsBlendedError, IsParentError, NotPrimaryError
 from .input_config import InputConfig
 from .utils import get_spanned_image
+from .wrappedskywcs import WrappedSkyWcs
+from .wrappedwcsbase import WrappedWcsBase
 
 _LOG = logging.getLogger(__name__)
 TWO_SQRT_PI = 2 * math.sqrt(np.pi)
+RAD_TO_DEG = 180 / np.pi
 
 
 class PsfFitSuccessActionBase(ConfigurableAction):
@@ -431,11 +437,22 @@ class BasicModelInitializer(ModelInitializer):
                 priors_shape.append(prior)
         return tuple(priors_gauss), tuple(priors_shape)
 
-    def convert_coordinates(self, cen_x: float, cen_y: float, sig_x: float, sig_y: float, rho: float):
+    def convert_coordinates(
+        self,
+        wcs: WrappedWcsBase | None,
+        cen_x: float,
+        cen_y: float,
+        sig_x: float,
+        sig_y: float,
+        rho: float,
+    ):
         """Convert pixel to sky coordinates.
 
         Parameters
         ----------
+        wcs
+            The afw WCS to use in converting coordinates.
+            If None, no conversion is done.
         cen_x
             The x-axis pixel centroid.
         cen_y
@@ -454,15 +471,20 @@ class BasicModelInitializer(ModelInitializer):
         dec
             The declination in degrees.
         sig_ra
-            The uncertainty on the right ascension.
+            The uncertainty on the right ascension in degrees.
         sig_ra
-            The uncertainty on the declination.
+            The uncertainty on the declination in degrees.
         rho
             The RA-dec axis correlation parameter.
         """
-        ra, dec = (x.asDegrees() for x in self.wcs.pixelToSky(cen_x, cen_y))
+        if wcs is None:
+            return cen_x, cen_y, sig_x, sig_y, rho
+        if cen_x is not None and cen_y is not None:
+            ra, dec = wcs.get_pixel_to_ra_dec(cen_x, cen_y)
+        else:
+            ra, dec = None, None
         # TODO: Make sure this is in degrees
-        cd_wcs = self.wcs.getCdMatrix()
+        cd_wcs = wcs.get_cd_matrix()
         # TODO: apply rotation matrix without assumptions
         sig_x *= np.abs(cd_wcs[0, 0])
         sig_y *= np.abs(cd_wcs[1, 1])
@@ -542,7 +564,8 @@ class BasicModelInitializer(ModelInitializer):
         flux_init
             The initial flux in this exposure.
         """
-        if source.get(f"merge_measurement_{catexp.band}") is not None:
+        column_ref = f"merge_measurement_{catexp.band}"
+        if column_ref in source.schema.getNames() and source[column_ref]:
             row = source
         else:
             row = catexp.catalog.find(source["id"])
@@ -634,23 +657,13 @@ class BasicModelInitializer(ModelInitializer):
         else:
             catexps_obs = catexps
 
-        use_sky_coords: bool | None = None
+        use_sky_coords = config_data.config.config_fit.use_sky_coords
 
         for idx_obs, observation in enumerate(model.data):
             coordsys = observation.image.coordsys
             catexp = catexps_obs[idx_obs]
-            band = catexp.band
 
             is_afw = isinstance(catexp, CatalogExposurePsfs)
-            use_sky_coords_obs = catexp.use_sky_coords if is_afw else True
-            if use_sky_coords is None:
-                use_sky_coords = use_sky_coords_obs
-            else:
-                if use_sky_coords != use_sky_coords_obs:
-                    raise ValueError(
-                        f"catexp with {band=} has {use_sky_coords_obs=}"
-                        f" but a previous one had {use_sky_coords=}"
-                    )
 
             x_coordsys = (
                 coordsys.x_min,
@@ -681,7 +694,6 @@ class BasicModelInitializer(ModelInitializer):
             fluxes_init[observation.channel] = flux_init / n_components
             fluxes_limits[observation.channel] = (flux_min, flux_max)
 
-        use_sky_coords = use_sky_coords is True
         (cen_x, cen_y), (sig_x, sig_y, rho) = self.get_centroid_and_shape(
             source,
             catexps,
@@ -696,17 +708,23 @@ class BasicModelInitializer(ModelInitializer):
             sig_x, sig_y, rho = 2.0, 2.0, 0.0
 
         if not np.isfinite(cen_x):
-            cen_x = observation.image.n_cols / 2.0
+            cen_x = (x_max - x_min) / 2.0
         elif use_sky_coords:
             cen_x -= centroid_pixel_offset
         if not np.isfinite(cen_y):
-            # TODO: Add bbox coords or remove
-            cen_y = observation.image.n_rows / 2.0
+            cen_y = (y_max - y_min) / 2.0
         elif use_sky_coords:
             cen_y -= centroid_pixel_offset
 
         if use_sky_coords:
-            cen_x, cen_y, sig_x, sig_y, rho = self.convert_coordinates(cen_x, cen_y, sig_x, sig_y, rho)
+            cen_x, cen_y, sig_x, sig_y, rho = self.convert_coordinates(
+                kwargs["wcs"],
+                cen_x,
+                cen_y,
+                sig_x,
+                sig_y,
+                rho,
+            )
 
         # An R_eff larger than the box size is problematic. This should also
         # stop unreasonable size proposals; a log10 transform isn't enough.
@@ -828,7 +846,7 @@ class InitialInputData(pydantic.BaseModel):
         """Return the name of the object ID column."""
         return self.column_id or self.config_input.column_id
 
-    def get_column(self, name_column: str, data=None):
+    def get_column(self, name_column: str, data=None, prefix: str | None = None):
         """Get the values from a column.
 
         Parameters
@@ -837,6 +855,8 @@ class InitialInputData(pydantic.BaseModel):
             The name of the column to retrieve.
         data
             The catalog to retrieve the column from. Default is self.data.
+        prefix
+            Prefix for the column name. Defaults to self.prefix_column if None.
 
         Returns
         -------
@@ -845,7 +865,9 @@ class InitialInputData(pydantic.BaseModel):
         """
         if data is None:
             data = self.data
-        return data[f"{self.prefix_column}{name_column}"]
+        if prefix is None:
+            prefix = self.prefix_column
+        return data[f"{prefix}{name_column}"]
 
     def model_post_init(self, __context: Any) -> None:
         # Initialize a mapping of the row number for a given object ID value
@@ -962,6 +984,10 @@ class MultiProFitSourceConfig(CatalogSourceFitterConfig, fitMB.CoaddMultibandFit
         " Will be added to component with existing configs.",
         default={},
     )
+    use_sky_coords = pexConfig.Field[bool](
+        doc="Whether to use RA/dec in degrees for the coordinate system",
+        default=False,
+    )
 
     def bands_read_only(self) -> set[str]:
         # TODO: Re-implement determination of prior-only bands once
@@ -996,22 +1022,118 @@ class MultiProFitSourceConfig(CatalogSourceFitterConfig, fitMB.CoaddMultibandFit
         self.suffix_error = "Err"
 
 
-@pydantic.dataclasses.dataclass(frozen=True, kw_only=True, config=fitMB.CatalogExposureConfig)
-class CatalogExposurePsfs(fitMB.CatalogExposureInputs, CatalogExposureSourcesABC):
-    """Input data from lsst pipelines, parsed for MultiProFit."""
+CatalogExposureSourcesDataclassConfig = pydantic.ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
-    channel: g2f.Channel = pydantic.Field(title="Channel for the image's band")
+
+@pydantic.dataclasses.dataclass(frozen=True, kw_only=True, config=CatalogExposureSourcesDataclassConfig)
+class CatalogExposureSourcesWcsBase(fitMB.CatalogExposureInputs, ABC):
+    """A CatalogExposureSources with a wrapped WCS."""
+
     config_fit: MultiProFitSourceConfig = pydantic.Field(title="Config for fitting options")
-    use_sky_coords: bool = pydantic.Field(
-        title="Whether to use RA/dec in degrees for the coordinate system",
+    psf_fit_in_sky_coords: bool = pydantic.Field(
+        title="Whether the PSF fit table is in sky coordinates instead of pixel",
         default=False,
     )
+    psf_model_data: CatalogPsfFitterConfigData = pydantic.Field(title="The PSF model data for this exposure")
 
-    def _get_dx1(self):
-        return self.exposure.wcs.getCdMatrix()[0, 0]
+    @abstractmethod
+    def get_wcs(self) -> WrappedWcsBase:
+        """Return the WrappedWcs associated with the exposure."""
 
-    def _get_dy2(self):
-        return self.exposure.wcs.getCdMatrix()[1, 1]
+    def get_local_cd_matrix(self, params: Mapping[str, Any]):
+        return self.get_wcs().get_cd_matrix()
+
+    def initialize_psf_external(self, params):
+        psf_model = self.psf_model_data.psf_model
+        try:
+            gaussians = self.config_fit.action_psf(params)
+        except PsfRebuildFitFlagError:
+            return None
+        n_comps = len(psf_model.components)
+        fluxes = [0.0] * n_comps
+        params_flux, is_frac = self._psf_flux_params
+        for idx_comp, (comp, gaussian) in enumerate(zip(psf_model.components, gaussians)):
+            ellipse_out = comp.ellipse
+            ellipse_in = gaussian.ellipse
+            ellipse_out.sigma_x = ellipse_in.sigma_x
+            ellipse_out.sigma_y = ellipse_in.sigma_y
+            ellipse_out.rho = ellipse_in.rho
+            fluxes[idx_comp] = gaussian.integral.value
+        # Apparently negative fluxes are possible. Not much can be done to
+        # fix that but set them to a tiny value (zero might work)
+        fluxes = np.clip(fluxes, 1e-3, np.inf)
+        flux_total = sum(fluxes)
+        if is_frac:
+            flux_remaining = 1.0
+            for flux, param_frac in zip(fluxes, params_flux[:-1]):
+                flux_component = flux / flux_total
+                param_frac.value = flux_component / flux_remaining
+                flux_remaining -= flux_component
+        else:
+            for flux, param_flux in zip(fluxes, params_flux):
+                param_flux.value = flux / flux_total
+
+    @cached_property
+    def psf_sigma_subtract(self) -> float:
+        return self.config_fit.psf_sigma_subtract
+
+    def get_psf_model(self, params: Mapping[str, Any]) -> g2f.PsfModel | None:
+        psf_model = self.psf_model_data.psf_model
+        if not self.config_fit.requires_psf():
+            self.initialize_psf_external(params)
+        else:
+            # TODO: this should probably use .index or something
+            match = np.argwhere(
+                self.table_psf_fits[self.psf_model_data.config.column_id] == params[self.config_fit.column_id]
+            )[0][0]
+            psf_model = self.psf_model_data.psf_model
+            try:
+                self.psf_model_data.init_psf_model(self.table_psf_fits[match])
+            except PsfRebuildFitFlagError:
+                return None
+
+        sigma_subtract = self.psf_sigma_subtract
+        convert_sky_coords = self.config_fit.use_sky_coords and not self.psf_fit_in_sky_coords
+
+        do_sigma_subtract = sigma_subtract > 0
+        if convert_sky_coords or do_sigma_subtract:
+            if do_sigma_subtract:
+                sigma_subtract_sq = sigma_subtract * sigma_subtract
+                # 1/10 of PSF sigma should suffice as a minimum size
+                sigma_min_sq = sigma_subtract_sq / 100.0
+
+            if convert_sky_coords:
+                wcs = self.get_wcs()
+                cd_matrix = self.get_local_cd_matrix(params)
+
+            for comp in psf_model.components:
+                ellipse = comp.ellipse
+
+                if do_sigma_subtract:
+                    # TODO: May need to check if these were fixed?
+                    # Even though PSF fits should not have had fixed ellipses
+                    for param in (ellipse.sigma_x_param, ellipse.sigma_y_param):
+                        value = math.sqrt(max(param.value**2 - sigma_subtract_sq, sigma_min_sq))
+                        param.value = value
+
+                if convert_sky_coords:
+                    sig_x_param = ellipse.sigma_x_param
+                    sig_y_param = ellipse.sigma_y_param
+                    rho_param = ellipse.rho_param
+
+                    var_ra_psf, var_dec_psf, cov_radec_psf = wcs.convert_moments(
+                        sig_x_param.value**2,
+                        sig_y_param.value**2,
+                        sig_x_param.value * sig_y_param.value * rho_param.value,
+                        cd_matrix,
+                    )
+                    sig_ra_psf = np.sqrt(var_ra_psf)
+                    sig_dec_psf = np.sqrt(var_dec_psf)
+                    rho_param.value = cov_radec_psf / (sig_ra_psf * sig_dec_psf)
+                    sig_x_param.value = sig_ra_psf
+                    sig_y_param.value = sig_dec_psf
+
+        return psf_model
 
     @cached_property
     def _psf_flux_params(self) -> tuple[list[g2f.ParameterD], bool]:
@@ -1050,66 +1172,43 @@ class CatalogExposurePsfs(fitMB.CatalogExposureInputs, CatalogExposureSourcesABC
 
         return params_flux, is_frac_any
 
-    def get_psf_model(self, params: Mapping[str, Any]) -> g2f.PsfModel | None:
-        psf_model = self.psf_model_data.psf_model
-        # PsfComponentsActionBase is an abstract class, so check if the action
-        # is a subclass that needs to be called
-        if not self.config_fit.requires_psf():
-            try:
-                gaussians = self.config_fit.action_psf(params)
-            except PsfRebuildFitFlagError:
-                return None
-            n_comps = len(psf_model.components)
-            fluxes = [0.0] * n_comps
-            params_flux, is_frac = self._psf_flux_params
-            for idx_comp, (comp, gaussian) in enumerate(zip(psf_model.components, gaussians)):
-                ellipse_out = comp.ellipse
-                ellipse_in = gaussian.ellipse
-                ellipse_out.sigma_x = ellipse_in.sigma_x
-                ellipse_out.sigma_y = ellipse_in.sigma_y
-                ellipse_out.rho = ellipse_in.rho
-                fluxes[idx_comp] = gaussian.integral.value
-            # Apparently negative fluxes are possible. Not much can be done to
-            # fix that but set them to a tiny value (zero might work)
-            fluxes = np.clip(fluxes, 1e-3, np.inf)
-            flux_total = sum(fluxes)
-            if is_frac:
-                flux_remaining = 1.0
-                for flux, param_frac in zip(fluxes, params_flux[:-1]):
-                    flux_component = flux / flux_total
-                    param_frac.value = flux_component / flux_remaining
-                    flux_remaining -= flux_component
-            else:
-                for flux, param_flux in zip(fluxes, params_flux):
-                    param_flux.value = flux / flux_total
-        else:
-            # TODO: this should probably use .index or something
-            match = np.argwhere(
-                self.table_psf_fits[self.psf_model_data.config.column_id] == params[self.config_fit.column_id]
-            )[0][0]
-            psf_model = self.psf_model_data.psf_model
-            try:
-                self.psf_model_data.init_psf_model(self.table_psf_fits[match])
-            except PsfRebuildFitFlagError:
-                return None
 
-        sigma_subtract = self.config_fit.psf_sigma_subtract
-        do_sigma_subtract = sigma_subtract > 0
-        if self.use_sky_coords or do_sigma_subtract:
-            sigma_subtract_sq = sigma_subtract * sigma_subtract
-            # 1/10 of PSF sigma should suffice as a minimum size
-            sigma_min_sq = sigma_subtract_sq / 100.0
-            for param in self.psf_model_data.parameters.values():
-                is_x = isinstance(param, g2f.SizeXParameterD)
-                is_y = isinstance(param, g2f.SizeYParameterD)
-                if is_x or is_y:
-                    value = param.value
-                    if do_sigma_subtract:
-                        value = math.sqrt(max(param.value**2 - sigma_subtract_sq, sigma_min_sq))
-                    if self.use_sky_coords:
-                        value *= abs(self._get_dx1()) if is_x else abs(self._get_dy2())
-                    param.value = value
-        return psf_model
+@pydantic.dataclasses.dataclass(frozen=True, kw_only=True, config=CatalogExposureSourcesDataclassConfig)
+class CatalogExposurePsfs(CatalogExposureSourcesWcsBase):
+    """A CatalogExposure with afw Sources and Wcs."""
+
+    channel: g2f.Channel = pydantic.Field(title="The channel of the observation")
+
+    @cached_property
+    def band(self) -> str:
+        return self.channel.name
+
+    def get_local_cd_matrix(self, params: Mapping[str, Any]):
+        cd_matrix = np.array(
+            (
+                (
+                    params["base_LocalWcs_CDMatrix_1_1"] * RAD_TO_DEG,
+                    params["base_LocalWcs_CDMatrix_1_2"] * RAD_TO_DEG,
+                ),
+                (
+                    params["base_LocalWcs_CDMatrix_2_1"] * RAD_TO_DEG,
+                    params["base_LocalWcs_CDMatrix_2_2"] * RAD_TO_DEG,
+                ),
+            )
+        )
+        return cd_matrix
+
+    def get_wcs(self) -> WrappedWcsBase:
+        return self.wcs
+
+    @cached_property
+    def psf_model_instance(self) -> g2f.PsfModel:
+        """Return the cached PsfModel instance."""
+        return self.psf_model_data.psf_model
+
+    @cached_property
+    def wcs(self) -> WrappedSkyWcs:
+        return WrappedSkyWcs(wcs=self.exposure.wcs)
 
     def get_source_observation(self, source, **kwargs) -> g2f.ObservationD | None:
         parent = source["parent"]
@@ -1172,11 +1271,12 @@ class CatalogExposurePsfs(fitMB.CatalogExposureInputs, CatalogExposureSourcesABC
         mask[~np.isfinite(img) | ~np.isfinite(sigma_inv)] = False
         sigma_inv[~mask] = 0
 
-        if self.use_sky_coords:
+        if self.config_fit.use_sky_coords:
             wcs = self.exposure.wcs
+            wcs_cd = wcs.getCdMatrix()
             # TODO: Get centroid_pixel_offset instead
             ra, dec = wcs.pixelToSky(x_min_bbox - 0.5, y_min_bbox - 0.5)
-            coordsys = g2.CoordinateSystem(self._get_dx1(), self._get_dy2(), ra.asDegrees(), dec.asDegrees())
+            coordsys = g2.CoordinateSystem(wcs_cd[0, 0], wcs_cd[1, 1], ra.asDegrees(), dec.asDegrees())
         else:
             coordsys = g2.CoordinateSystem(1.0, 1.0, x_min_bbox, y_min_bbox)
 
@@ -1187,19 +1287,6 @@ class CatalogExposurePsfs(fitMB.CatalogExposureInputs, CatalogExposureSourcesABC
             channel=self.channel,
         )
         return obs
-
-    def __post_init__(self):
-        # TODO: Can/should this be the derived type (MultiProFitPsfConfig)?
-        config = CatalogPsfFitterConfig()
-        config_dict = self.table_psf_fits.meta.get("config")
-        if config_dict:
-            set_config_from_dict(config, config_dict)
-        else:
-            # TODO: How should this be set?
-            # If using external PSF fits, it needs to be configured normally
-            pass
-        config_data = CatalogPsfFitterConfigData(config=config)
-        object.__setattr__(self, "psf_model_data", config_data)
 
 
 class MultiProFitSourceFitter(CatalogSourceFitterABC):
@@ -1224,13 +1311,13 @@ class MultiProFitSourceFitter(CatalogSourceFitterABC):
         title="The model parameter initializer",
         default_factory=lambda: BasicModelInitializer(),
     )
-    wcs: lsst.afw.geom.SkyWcs = pydantic.Field(
+    wcs: WrappedWcsBase = pydantic.Field(
         title="The WCS object to use to convert pixel coordinates to RA/dec",
     )
 
     def __init__(
         self,
-        wcs: lsst.afw.geom.SkyWcs,
+        wcs: WrappedWcsBase,
         errors_expected: dict[str, Exception] | None = None,
         add_missing_errors: bool = True,
         **kwargs: Any,
@@ -1293,7 +1380,7 @@ class MultiProFitSourceFitter(CatalogSourceFitterABC):
             key_dec,
         ) in columns_params_radec_err:
             (ra, dec), (ra_err, dec_err, ra_dec_cov) = afwTable.convertCentroid(
-                self.wcs,
+                self.wcs.get_wcs(),
                 results[key_cen_x][idx],
                 results[key_cen_y][idx],
                 results[key_cen_x_err][idx],
@@ -1332,12 +1419,14 @@ class MultiProFitSourceFitter(CatalogSourceFitterABC):
         values_init: Mapping[g2f.ParameterD, float] | None = None,
         **kwargs,
     ):
+        wcs = kwargs.pop("wcs", self.wcs)
         self.initializer.initialize_model(
             model=model,
             source=source,
             catexps=catexps,
             config_data=config_data,
             values_init=values_init,
+            wcs=wcs,
             **kwargs,
         )
 

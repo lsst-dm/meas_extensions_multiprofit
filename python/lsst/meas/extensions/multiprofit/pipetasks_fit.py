@@ -565,6 +565,10 @@ class MultiProFitCoaddDeVFitTask(MultiProFitCoaddObjectFitTask):
 
 
 class CachedChainedModelInitializer(CachedBasicModelInitializer):
+    """A cached initializer that sets initial values from a previous model
+    fit.
+    """
+
     def get_centroid_and_shape(
         self,
         source: Mapping[str, Any],
