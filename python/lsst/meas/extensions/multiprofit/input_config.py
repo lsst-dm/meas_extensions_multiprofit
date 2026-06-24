@@ -43,6 +43,7 @@ class InputConfig(pexConfig.Config):
     join_column = pexConfig.Field[str](
         doc="Column to join on if unequal length instead of stacking", default=None, optional=True
     )
+    needs_metadata = pexConfig.Field[bool](doc="Whether the input needs metadata read", default=False)
     storageClass = pexConfig.Field[str](doc="Storage class for DatasetType", default="ArrowAstropy")
 
     def get_connection(self, name: str) -> connectionTypes.Input:
@@ -57,6 +58,6 @@ class InputConfig(pexConfig.Config):
             storageClass=self.storageClass,
             dimensions=dimensions,
             multiple=not (self.is_multiband and self.is_multipatch),
-            deferLoad=self.columns is not None,
+            deferLoad=(self.columns is not None) or self.needs_metadata,
         )
         return connection
