@@ -44,6 +44,7 @@ import math
 from types import SimpleNamespace
 from typing import Any, Mapping, Sequence
 
+from lsst.daf.butler import DeferredDatasetHandle
 import lsst.gauss2d.fit as g2f
 from lsst.multiprofit.componentconfig import (
     GaussianComponentConfig,
@@ -324,7 +325,17 @@ class MultiProFitCoaddObjectFitTask(CoaddMultibandFitTask):
     _DefaultName = "multiProFitCoaddObjectFit"
 
     def make_kwargs(self, butlerQC, inputRefs, inputs):
-        inputs_init = {name: (config, inputs[name][0]) for name, config in self.config.inputs_init.items()}
+        inputs_init = {}
+        for name, config in self.config.inputs_init.items():
+            input_ = inputs[name][0]
+            if isinstance(input_, DeferredDatasetHandle):
+                parameters = None
+                if config.needs_metadata:
+                    parameters = {"strip_astropy_meta_yaml": False}
+                input_ = input_.get(parameters=parameters)
+
+            inputs_init[name] = (config, input_)
+
         kwargs = {}
         if inputs_init:
             kwargs["inputs_init"] = inputs_init
