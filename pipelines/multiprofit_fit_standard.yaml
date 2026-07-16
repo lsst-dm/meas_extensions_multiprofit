@@ -43,6 +43,7 @@ tasks:
             parameters.sersic_init_table: InputConfig(
               doc=f"{parameters.sersic_init_table} fit parameters",
               is_multiband=True,
+              needs_metadata=True,
             )
           }
           config.fit_coadd_multiband.action_initializer = MakeCachedChainedInitializerAction()

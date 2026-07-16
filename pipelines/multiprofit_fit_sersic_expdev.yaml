@@ -20,6 +20,7 @@ tasks:
             parameters.expdev_init_table: InputConfig(
               doc=f"{parameters.expdev_init_table} fit parameters",
               is_multiband=True,
+              needs_metadata=True,
             )
           }
 contracts:
