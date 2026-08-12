@@ -21,9 +21,13 @@
 
 from typing import ClassVar
 
+import lsst.gauss2d.fit as g2f
+import lsst.pex.config as pexConfig
+import lsst.pipe.base as pipeBase
+import lsst.pipe.tasks.fit_coadd_psf as fitCP
+import lsst.utils.timer as utilsTimer
 from lsst.afw.detection import InvalidPsfError
 from lsst.daf.butler.formatters.parquet import astropy_to_arrow
-import lsst.gauss2d.fit as g2f
 from lsst.multiprofit import (
     ComponentGroupConfig,
     FluxFractionParameterConfig,
@@ -37,10 +41,6 @@ from lsst.multiprofit.fitting.fit_psf import (
     CatalogPsfFitterConfig,
     CatalogPsfFitterConfigData,
 )
-import lsst.pex.config as pexConfig
-import lsst.pipe.base as pipeBase
-import lsst.pipe.tasks.fit_coadd_psf as fitCP
-import lsst.utils.timer as utilsTimer
 
 from .errors import IsParentError
 
@@ -115,7 +115,7 @@ class MultiProFitPsfTask(CatalogPsfFitter, fitCP.CoaddPsfFitSubTask):
             and (source["deblend_nChild"] > 1)
         ):
             raise IsParentError(
-                f"{source['id']=} is a parent with nChild={source['deblend_nChild']}" f" and will be skipped"
+                f"{source['id']=} is a parent with nChild={source['deblend_nChild']} and will be skipped"
             )
 
     def initialize_model(

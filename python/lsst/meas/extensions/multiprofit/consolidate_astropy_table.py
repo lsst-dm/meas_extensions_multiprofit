@@ -20,19 +20,20 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 __all__ = (
+    "ConsolidateAstropyTableConfig",
     "ConsolidateAstropyTableConfigBase",
     "ConsolidateAstropyTableConnections",
-    "ConsolidateAstropyTableConfig",
     "ConsolidateAstropyTableTask",
 )
 
 from collections import defaultdict
 
 import astropy.table as apTab
+import numpy as np
+
 import lsst.pex.config as pexConfig
 import lsst.pipe.base as pipeBase
 import lsst.pipe.base.connectionTypes as connectionTypes
-import numpy as np
 
 from .input_config import InputConfig
 
@@ -67,7 +68,7 @@ class ConsolidateAstropyTableConnections(
         for name, config_input in config.inputs.items():
             if hasattr(self, name):
                 raise ValueError(
-                    f"{config_input=} {name=} is invalid, due to being an existing attribute" f" of {self=}"
+                    f"{config_input=} {name=} is invalid, due to being an existing attribute of {self=}"
                 )
             connection = config_input.get_connection(name)
             setattr(self, name, connection)

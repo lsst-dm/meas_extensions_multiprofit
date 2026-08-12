@@ -19,13 +19,16 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-__all__ = ["ModelRebuilder", "PatchModelMatches", "PatchCoaddRebuilder"]
+__all__ = ["ModelRebuilder", "PatchCoaddRebuilder", "PatchModelMatches"]
 
+from collections.abc import Iterable
 from functools import cached_property
-from typing import Iterable
 
 import astropy.table
 import astropy.units as u
+import numpy as np
+import pydantic
+
 import lsst.afw.table as afwTable
 import lsst.daf.butler as dafButler
 import lsst.gauss2d.fit as g2f
@@ -38,8 +41,6 @@ from lsst.pipe.tasks.fit_coadd_multiband import (
     CoaddMultibandFitTask,
 )
 from lsst.skymap import BaseSkyMap, TractInfo
-import numpy as np
-import pydantic
 
 from .fit_coadd_multiband import (
     CatalogExposurePsfs,

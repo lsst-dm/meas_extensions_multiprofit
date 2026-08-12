@@ -21,26 +21,28 @@
 
 
 from abc import ABC, abstractmethod
-from typing import Any, Iterable, Self, Type
+from collections.abc import Iterable
+from typing import Any, Self
 
 import astropy.table
 import astropy.units as u
-from lsst.multiprofit.plotting import bands_weights_lsst, plot_model_rgb
 import matplotlib.axes
 import matplotlib.figure
 import matplotlib.pyplot as plt
 import numpy as np
 import pydantic
 
+from lsst.multiprofit.plotting import bands_weights_lsst, plot_model_rgb
+
 from .rebuild_coadd_multiband import DataLoader, PatchCoaddRebuilder
 
 __all__ = [
-    "ObjectTableBase",
-    "TruthSummaryTable",
     "ObjectTable",
+    "ObjectTableBase",
     "ObjectTableCModel",
     "ObjectTableMultiProFit",
     "ObjectTablePsf",
+    "TruthSummaryTable",
     "downselect_table",
     "downselect_table_axis",
     "plot_blend",
@@ -304,7 +306,7 @@ def plot_blend(
     rebuilder: PatchCoaddRebuilder,
     idx_row_parent: int,
     weights: dict[str, float] = None,
-    table_ref_type: Type = TruthSummaryTable,
+    table_ref_type: type = TruthSummaryTable,
     kwargs_plot_parent: dict[str, Any] = None,
     kwargs_plot_children: dict[str, Any] = None,
 ) -> tuple[Figure, Axes, Figure, Axes]:

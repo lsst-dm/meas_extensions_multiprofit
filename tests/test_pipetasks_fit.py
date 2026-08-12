@@ -19,8 +19,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import lsst.meas.extensions.multiprofit.pipetasks_fit as pipeFit
 import pytest
+
+import lsst.meas.extensions.multiprofit.pipetasks_fit as pipeFit
 
 
 @pytest.fixture(scope="module")
