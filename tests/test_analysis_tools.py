@@ -21,6 +21,8 @@
 
 import pytest
 
+# analysis_tools is not and should not be a dependency of this package, so
+# only run these tests if it is set up.
 try:
     from lsst.meas.extensions.multiprofit.analysis_tools import MultiProFitSersicSizeMagnitudePlot
 

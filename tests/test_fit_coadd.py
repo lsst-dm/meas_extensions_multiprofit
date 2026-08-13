@@ -43,9 +43,15 @@ from lsst.multiprofit.modelconfig import ModelConfig
 from lsst.multiprofit.sourceconfig import ComponentGroupConfig, SourceConfig
 from lsst.pipe.tasks.fit_coadd_psf import CatalogExposurePsf
 
+# If this env var is set, some additional convenience tests will be run
+# on an exposure-measurement catalog pair assumed to be from imsim.
+# This should be faster than debugging any CI package.
+# If this env var is not set, the optional tests do nothing.
 ROOT = os.environ.get("TESTDATA_CI_IMSIM_MINI_DIR", None)
 has_files = (ROOT is not None) and os.path.isdir(ROOT)
 
+# These default names assume the files came from ci_imsim run with the
+# --config-use-skymap-small flag, but any other patch could be used.
 filename_cat = os.path.join(ROOT, "data", "deepCoadd_meas_0_24_r_2k_ci_imsim.fits") if has_files else None
 filename_exp = os.path.join(ROOT, "data", "deepCoadd_calexp_0_24_r_2k_ci_imsim.fits") if has_files else None
 
