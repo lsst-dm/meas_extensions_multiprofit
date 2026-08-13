@@ -45,6 +45,8 @@ def get_all_subclasses(cls, children_first: bool = True):
 
     Parameters
     ----------
+    cls
+        The class to get subclasses for.
     children_first
         If true, return child (direct subclasses) first, followed by their
         children (recursively). Otherwise, return each direct child followed

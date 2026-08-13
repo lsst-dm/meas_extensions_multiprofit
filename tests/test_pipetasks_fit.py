@@ -26,6 +26,7 @@ import lsst.meas.extensions.multiprofit.pipetasks_fit as pipeFit
 
 @pytest.fixture(scope="module")
 def configs():
+    """Return a dict of default-initialized config classes by name."""
     configs = {}
     # All derived classes should be listed here
     for classname in (
@@ -41,6 +42,6 @@ def configs():
 
 
 def test_config_validate(configs):
-    # Ensure that default configs validate
+    """Test that all default-initialized configs validate."""
     for name_config, config in configs.items():
         config.validate()
