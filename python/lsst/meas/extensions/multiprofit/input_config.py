@@ -20,8 +20,8 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import lsst.pex.config as pexConfig
-from lsst.pex.config.configurableActions import ConfigurableActionField
 import lsst.pipe.base.connectionTypes as connectionTypes
+from lsst.pex.config.configurableActions import ConfigurableActionField
 
 from .catalog_actions import CatalogAction
 

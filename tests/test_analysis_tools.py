@@ -21,6 +21,8 @@
 
 import pytest
 
+# analysis_tools is not and should not be a dependency of this package, so
+# only run these tests if it is set up.
 try:
     from lsst.meas.extensions.multiprofit.analysis_tools import MultiProFitSersicSizeMagnitudePlot
 
@@ -32,6 +34,7 @@ if has_analysis_tools:
 
     @pytest.fixture(scope="module")
     def kwargs_plot():
+        """Return sensible kwargs for size-magnitude plots."""
         kwargs = dict(
             xLims=(18, 25),
             yLims=(-3, 4),
@@ -40,16 +43,19 @@ if has_analysis_tools:
 
     @pytest.fixture(scope="module")
     def tool_sersic(kwargs_plot):
+        """Return a finalized Sersic size-magnitude plot action."""
         atool = MultiProFitSersicSizeMagnitudePlot()
         atool.finalize()
         return atool
 
     @pytest.fixture(scope="module")
     def data_sersic(tool_sersic):
+        """Return the schema for the Sersic size-magnitude plot action."""
         schema = tool_sersic.getInputSchema()
         data = {key: [] for key in schema}
         return data
 
     def test_psf_fits(tool_sersic, data_sersic):
+        """Test that the tool and its schema are useable."""
         assert tool_sersic is not None
         assert len(data_sersic) > 0

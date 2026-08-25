@@ -20,32 +20,33 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 __all__ = (
-    "component_names_default",
-    "model_names_default",
-    "MultiProFitCoaddPsfFitConfig",
-    "MultiProFitCoaddPsfFitTask",
-    "MultiProFitCoaddObjectFitConfig",
-    "MultiProFitCoaddPointFitConfig",
-    "MultiProFitCoaddSersicFitConfig",
-    "MultiProFitCoaddSersicFitTask",
-    "MultiProFitCoaddGaussFitConfig",
-    "MultiProFitCoaddGaussFitTask",
-    "MultiProFitCoaddExpFitConfig",
-    "MultiProFitCoaddExpFitTask",
     "MultiProFitCoaddDeVFitConfig",
     "MultiProFitCoaddDeVFitTask",
     "MultiProFitCoaddExpDeVFitConfig",
     "MultiProFitCoaddExpDeVFitTask",
+    "MultiProFitCoaddExpFitConfig",
+    "MultiProFitCoaddExpFitTask",
+    "MultiProFitCoaddGaussFitConfig",
+    "MultiProFitCoaddGaussFitTask",
+    "MultiProFitCoaddObjectFitConfig",
+    "MultiProFitCoaddPointFitConfig",
+    "MultiProFitCoaddPsfFitConfig",
+    "MultiProFitCoaddPsfFitTask",
+    "MultiProFitCoaddSersicFitConfig",
+    "MultiProFitCoaddSersicFitTask",
+    "component_names_default",
+    "model_names_default",
 )
 
-from abc import abstractmethod
 import itertools
 import math
+from abc import abstractmethod
+from collections.abc import Mapping, Sequence
 from types import SimpleNamespace
-from typing import Any, Mapping, Sequence
+from typing import Any
 
-from lsst.daf.butler import DeferredDatasetHandle
 import lsst.gauss2d.fit as g2f
+from lsst.daf.butler import DeferredDatasetHandle
 from lsst.multiprofit.componentconfig import (
     GaussianComponentConfig,
     ParameterConfig,
@@ -120,7 +121,7 @@ class MultiProFitCoaddObjectFitConnections(CoaddMultibandFitConnections):
         for name, config_input in config.inputs_init.items():
             if hasattr(self, name):
                 raise ValueError(
-                    f"{config_input=} {name=} is invalid, due to being an existing attribute" f" of {self=}"
+                    f"{config_input=} {name=} is invalid, due to being an existing attribute of {self=}"
                 )
             if config_input.is_multipatch or not config_input.is_multiband:
                 raise ValueError(

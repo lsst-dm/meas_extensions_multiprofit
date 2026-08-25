@@ -21,13 +21,16 @@
 
 import os
 
+import numpy as np
+import pytest
 from astropy.table import Table
-from lsst.afw.image import ExposureF
-from lsst.afw.table import SourceCatalog
-from lsst.daf.butler.formatters.parquet import arrow_to_astropy
+
 import lsst.gauss2d.fit as g2f
 import lsst.meas.extensions.multiprofit.fit_coadd_multiband as fitCMB
 import lsst.meas.extensions.multiprofit.fit_coadd_psf as fitCP
+from lsst.afw.image import ExposureF
+from lsst.afw.table import SourceCatalog
+from lsst.daf.butler.formatters.parquet import arrow_to_astropy
 from lsst.multiprofit.componentconfig import (
     CentroidConfig,
     GaussianComponentConfig,
@@ -39,12 +42,16 @@ from lsst.multiprofit.fitting.fit_psf import CatalogPsfFitterConfig
 from lsst.multiprofit.modelconfig import ModelConfig
 from lsst.multiprofit.sourceconfig import ComponentGroupConfig, SourceConfig
 from lsst.pipe.tasks.fit_coadd_psf import CatalogExposurePsf
-import numpy as np
-import pytest
 
+# If this env var is set, some additional convenience tests will be run
+# on an exposure-measurement catalog pair assumed to be from imsim.
+# This should be faster than debugging any CI package.
+# If this env var is not set, the optional tests do nothing.
 ROOT = os.environ.get("TESTDATA_CI_IMSIM_MINI_DIR", None)
 has_files = (ROOT is not None) and os.path.isdir(ROOT)
 
+# These default names assume the files came from ci_imsim run with the
+# --config-use-skymap-small flag, but any other patch could be used.
 filename_cat = os.path.join(ROOT, "data", "deepCoadd_meas_0_24_r_2k_ci_imsim.fits") if has_files else None
 filename_exp = os.path.join(ROOT, "data", "deepCoadd_calexp_0_24_r_2k_ci_imsim.fits") if has_files else None
 
@@ -58,6 +65,7 @@ n_test = 5
 
 @pytest.fixture(scope="module")
 def catalog():
+    """Return a source catalog if the mini imsim path exists."""
     if not has_files:
         return None
     catalog = SourceCatalog.readFits(filename_cat)
@@ -68,6 +76,7 @@ def catalog():
 
 @pytest.fixture(scope="module")
 def exposure():
+    """Return exposures if available."""
     if not has_files:
         return None
     return ExposureF.readFits(filename_exp)
@@ -75,11 +84,13 @@ def exposure():
 
 @pytest.fixture(scope="module")
 def psf_fit_config():
+    """Return a default PSF fitting config."""
     return fitCP.MultiProFitPsfConfig()
 
 
 @pytest.fixture(scope="module")
 def psf_fit_results(catalog, exposure, psf_fit_config):
+    """Fit the imsim PSFs if available."""
     if not has_files:
         return None
     catexp = CatalogExposurePsf(dataId=dataId, catalog=catalog, exposure=exposure)
@@ -90,6 +101,7 @@ def psf_fit_results(catalog, exposure, psf_fit_config):
 
 @pytest.fixture(scope="module")
 def source_fit_exp_fixedcen_config():
+    """Return a fixed-centroid exponential source fit config."""
     config = fitCMB.MultiProFitSourceConfig(
         bands_fit=(band,),
         config_model=ModelConfig(
@@ -120,6 +132,7 @@ def source_fit_exp_fixedcen_config():
 
 @pytest.fixture(scope="module")
 def source_fit_ser_config():
+    """Return a Sersic source fit config."""
     config = fitCMB.MultiProFitSourceConfig(
         bands_fit=(band,),
         config_model=ModelConfig(
@@ -161,6 +174,7 @@ def source_fit_exp_fixedcen_results(
     psf_fit_config,
     source_fit_exp_fixedcen_config,
 ) -> Table:
+    """Return the exponential fit results if data exists."""
     if not has_files:
         return None
     if not do_exp_fixedcen:
@@ -186,6 +200,7 @@ def source_fit_ser_results(
     psf_fit_config,
     source_fit_ser_config,
 ) -> Table:
+    """Return the Sersic fit results if data exists."""
     if not has_files:
         return None
     catexp = fitCMB.CatalogExposurePsfs(
@@ -209,6 +224,7 @@ def source_fit_ser_shapelet_psf_results(
     psf_fit_config,
     source_fit_ser_config,
 ) -> Table:
+    """Return the Sersic fits using shapelet PSF parameters if data exists."""
     if not has_files:
         return None
     table_psf = Table(
@@ -234,6 +250,7 @@ def source_fits_all(
     source_fit_ser_results,
     source_fit_ser_shapelet_psf_results,
 ):
+    """Return all of the fits."""
     return (
         source_fit_exp_fixedcen_results,
         source_fit_ser_results,
@@ -242,6 +259,7 @@ def source_fits_all(
 
 
 def test_psf_fits(psf_fit_results):
+    """Test all available PSF fits."""
     if psf_fit_results is not None:
         assert len(psf_fit_results) == n_test
         for column in psf_fit_results.columns:
@@ -250,6 +268,7 @@ def test_psf_fits(psf_fit_results):
 
 
 def test_source_fits(source_fits_all):
+    """Test all available source fits."""
     for results in source_fits_all:
         if results is not None:
             assert len(results) == n_test

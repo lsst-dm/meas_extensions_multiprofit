@@ -27,10 +27,11 @@ __all__ = (
 from collections import defaultdict
 
 import astropy.table
-from lsst.multiprofit.fitting.fit_catalog import CatalogFitterConfig
-import lsst.pex.config as pexConfig
-from lsst.pex.config.configurableActions import ConfigurableAction
 import numpy as np
+
+import lsst.pex.config as pexConfig
+from lsst.multiprofit.fitting.fit_catalog import CatalogFitterConfig
+from lsst.pex.config.configurableActions import ConfigurableAction
 
 
 class CatalogAction(ConfigurableAction):

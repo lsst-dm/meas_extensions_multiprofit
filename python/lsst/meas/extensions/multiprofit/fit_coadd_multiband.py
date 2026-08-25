@@ -20,37 +20,45 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 __all__ = (
-    "PsfFitSuccessActionBase",
-    "PsfComponentsActionBase",
-    "SourceTablePsfFitSuccessAction",
-    "SourceTablePsfComponentsAction",
-    "MagnitudeDependentSizePriorConfig",
-    "ModelInitializer",
-    "MakeInitializerActionBase",
     "BasicModelInitializer",
     "CachedBasicModelInitializer",
+    "CatalogExposurePsfs",
     "InitialInputData",
+    "MagnitudeDependentSizePriorConfig",
     "MakeBasicInitializerAction",
     "MakeCachedBasicInitializerAction",
+    "MakeInitializerActionBase",
+    "ModelInitializer",
     "MultiProFitSourceConfig",
-    "CatalogExposurePsfs",
     "MultiProFitSourceFitter",
     "MultiProFitSourceTask",
+    "PsfComponentsActionBase",
+    "PsfFitSuccessActionBase",
+    "SourceTablePsfComponentsAction",
+    "SourceTablePsfFitSuccessAction",
 )
 
-from abc import ABC, abstractmethod
-from functools import cached_property
 import logging
 import math
-from typing import Any, ClassVar, Iterable, Mapping, Sequence
+from abc import ABC, abstractmethod
+from collections.abc import Iterable, Mapping, Sequence
+from functools import cached_property
+from typing import Any, ClassVar
 
-from astropy.table import Table
 import astropy.units as u
+import numpy as np
+import pydantic
+from astropy.table import Table
+
 import lsst.afw.geom
 import lsst.afw.table as afwTable
-from lsst.daf.butler.formatters.parquet import astropy_to_arrow
 import lsst.gauss2d as g2
 import lsst.gauss2d.fit as g2f
+import lsst.pex.config as pexConfig
+import lsst.pipe.base as pipeBase
+import lsst.pipe.tasks.fit_coadd_multiband as fitMB
+import lsst.utils.timer as utilsTimer
+from lsst.daf.butler.formatters.parquet import astropy_to_arrow
 from lsst.multiprofit.errors import NoDataError, PsfRebuildFitFlagError
 from lsst.multiprofit.fitting.fit_psf import CatalogPsfFitterConfig, CatalogPsfFitterConfigData
 from lsst.multiprofit.fitting.fit_source import (
@@ -61,13 +69,7 @@ from lsst.multiprofit.fitting.fit_source import (
 )
 from lsst.multiprofit.modeller import Model
 from lsst.multiprofit.utils import frozen_arbitrary_allowed_config, get_params_uniq, set_config_from_dict
-import lsst.pex.config as pexConfig
 from lsst.pex.config.configurableActions import ConfigurableAction, ConfigurableActionField
-import lsst.pipe.base as pipeBase
-import lsst.pipe.tasks.fit_coadd_multiband as fitMB
-import lsst.utils.timer as utilsTimer
-import numpy as np
-import pydantic
 
 from .errors import IsParentError, NotPrimaryError
 from .input_config import InputConfig
@@ -382,15 +384,10 @@ class BasicModelInitializer(ModelInitializer):
         # (those are part of model.data's fixed parameters)
         params_init = (
             tuple(
-                (
-                    param
-                    for param in get_params_uniq(model_sources[0])
-                    if param.free
-                    or (
-                        isinstance(param, g2f.CentroidXParameterD)
-                        or isinstance(param, g2f.CentroidYParameterD)
-                    )
-                )
+                param
+                for param in get_params_uniq(model_sources[0])
+                if param.free
+                or (isinstance(param, g2f.CentroidXParameterD) or isinstance(param, g2f.CentroidYParameterD))
             )
             if (len(model_sources) == 1)
             else tuple(

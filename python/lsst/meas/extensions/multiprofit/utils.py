@@ -20,12 +20,13 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from collections import defaultdict
-from typing import Iterable
+from collections.abc import Iterable
+
+import numpy as np
 
 import lsst.afw.detection as afwDetect
 import lsst.afw.image as afwImage
 import lsst.geom as geom
-import numpy as np
 
 
 def defaultdictNested():
@@ -44,6 +45,8 @@ def get_all_subclasses(cls, children_first: bool = True):
 
     Parameters
     ----------
+    cls
+        The class to get subclasses for.
     children_first
         If true, return child (direct subclasses) first, followed by their
         children (recursively). Otherwise, return each direct child followed
