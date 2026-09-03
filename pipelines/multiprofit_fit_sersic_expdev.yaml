@@ -1,7 +1,7 @@
 description: |
   Extended MultiProFit pipeline with additional models
 imports:
-  - location: $MEAS_EXTENSIONS_MULTIPROFIT_DIR/pipelines/_ingredients/LSSTCam/DRP.yaml
+  - location: resource://lsst.meas.extensions.multiprofit/resources/pipelines/_ingredients/LSSTCam/DRP.yaml
 parameters:
   expdev_init_table: deepCoadd_Sersic_multiprofit
 tasks:
