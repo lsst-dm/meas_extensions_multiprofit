@@ -631,7 +631,10 @@ class BasicModelInitializer(ModelInitializer):
         flux_limit_min = kwargs.pop("flux_limit_min", 1e-12)
         if kwargs:
             raise ValueError(f"Unexpected {kwargs=}")
-        centroid_pixel_offset = config_data.config.centroid_pixel_offset
+        # TODO: cast(self.config, MultiProFitSourceConfig) seems broken
+        # ... it changes __class__ to pexConfig.ConfigMeta??
+        config: MultiProFitSourceConfig = config_data.config
+        centroid_pixel_offset = config.centroid_pixel_offset
 
         # Make restrictive centroid limits (intersection, not union)
         x_min, y_min, x_max, y_max = -np.inf, -np.inf, np.inf, np.inf
