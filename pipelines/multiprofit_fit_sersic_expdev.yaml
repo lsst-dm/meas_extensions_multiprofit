@@ -1,9 +1,14 @@
 description: |
   Extended MultiProFit pipeline with additional models
 imports:
-  - location: $MEAS_EXTENSIONS_MULTIPROFIT_DIR/pipelines/_ingredients/LSSTCam/DRP.yaml
+  - location: $DRP_PIPE_DIR/pipelines/_ingredients/LSSTCam/DRP.yaml
+  - location: $MEAS_EXTENSIONS_MULTIPROFIT_DIR/pipelines/multiprofit_fit_psf.yaml
 parameters:
+  add_point_source: False
+  fix_centroid: False
+  prior_axrat_stddev: null
   expdev_init_table: deepCoadd_Sersic_multiprofit
+  use_shapelet_psf: False
 tasks:
   fitDeblendedObjectsExpDeV:
     class: lsst.meas.extensions.multiprofit.pipetasks_fit.MultiProFitCoaddExpDeVFitTask
@@ -13,6 +18,7 @@ tasks:
         config.finalize(
           add_point_source=parameters.add_point_source,
           fix_centroid=parameters.fix_centroid,
+          prior_axrat_stddev=parameters.prior_axrat_stddev,
           use_shapelet_psf=parameters.use_shapelet_psf,
         )
         if parameters.expdev_init_table:
@@ -23,5 +29,6 @@ tasks:
               needs_metadata=True,
             )
           }
+        config.fit_coadd_multiband.action_initializer = MakeCachedChainedInitializerAction()
 contracts:
   - fitDeepCoaddPsfGaussians.use_cell_coadds == fitDeblendedObjectsExpDeV.use_cell_coadds

@@ -1,0 +1,9 @@
+description: |
+  Default configuration for MultiProFit PSF fitting in LSST pipelines
+parameters:
+  use_cell_coadds: False
+tasks:
+  fitDeepCoaddPsfGaussians:
+    class: lsst.meas.extensions.multiprofit.pipetasks_fit.MultiProFitCoaddPsfFitTask
+    config:
+      use_cell_coadds: parameters.use_cell_coadds

@@ -1,5 +1,7 @@
 description: |
   Default configuration for MultiProFit in LSST pipelines
+imports:
+  - location: $MEAS_EXTENSIONS_MULTIPROFIT_DIR/pipelines/multiprofit_fit_psf.yaml
 parameters:
   add_point_source: False
   fix_centroid: False
@@ -8,10 +10,6 @@ parameters:
   use_cell_coadds: False
   use_shapelet_psf: False
 tasks:
-  fitDeepCoaddPsfGaussians:
-    class: lsst.meas.extensions.multiprofit.pipetasks_fit.MultiProFitCoaddPsfFitTask
-    config:
-      use_cell_coadds: parameters.use_cell_coadds
   fitDeblendedObjectsExp:
     class: lsst.meas.extensions.multiprofit.pipetasks_fit.MultiProFitCoaddExpFitTask
 
