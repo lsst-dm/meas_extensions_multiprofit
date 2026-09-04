@@ -1347,6 +1347,10 @@ class MultiProFitSourceFitter(CatalogSourceFitterABC):
         Keyword arguments to pass to the superclass constructor.
     """
 
+    do_post_fit_plot: bool = pydantic.Field(
+        title="Whether to make a plot after each object is fit",
+        default=False,
+    )
     initializer: ModelInitializer = pydantic.Field(
         title="The model parameter initializer",
         default_factory=lambda: BasicModelInitializer(),
@@ -1497,6 +1501,36 @@ class MultiProFitSourceFitter(CatalogSourceFitterABC):
             config_fit=config,
         )
         return catexp_psf
+
+    def post_fit(
+        self,
+        idx: int,
+        model: g2f.ModelF | g2f.ModelD,
+        results: Row,
+        params_cen_x: dict[str, g2f.CentroidXParameterD],
+        params_cen_y: dict[str, g2f.CentroidYParameterD],
+    ):
+        if self.do_post_fit_plot:
+            import matplotlib.pyplot as plt
+            from lsst.multiprofit.plotting.reference_data import bands_weights_lsst
+            from lsst.multiprofit.plotting import plot_model_rgb, plot_model_singleband
+
+            model_eval = g2f.ModelD(
+                data=model.data, psfmodels=model.psfmodels, sources=model.sources
+            )
+            model_eval.setup_evaluators(evaluatormode=g2f.EvaluatorMode.image)
+            model_eval.evaluate()
+
+            bands = [channel.name for channel in model.data.channels]
+            # TODO: This is a sensible default but it could be made more
+            # flexible as a ConfigurableAction
+            if len(bands) > 3:
+                bands_rgb = ("i", "r", "g") if ("i" in bands and "r" in bands and "g" in bands) else bands[:3]
+                plot_model_rgb(model, weights={band: bands_weights_lsst.get(band, 1.0) for band in bands_rgb})
+            fig, ax = plot_model_singleband(model, 0, percentile_scaling=85)
+            fig.suptitle(f"{idx=} bands={','.join(['r'])}")
+
+            plt.show()
 
     def validate_fit_inputs(
         self,
