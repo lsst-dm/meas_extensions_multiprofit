@@ -6,6 +6,7 @@ imports:
 parameters:
   add_point_source: False
   fix_centroid: False
+  prior_axrat_mean: null
   prior_axrat_stddev: null
   expdev_init_table: deepCoadd_Sersic_multiprofit
   use_shapelet_psf: False
@@ -18,6 +19,7 @@ tasks:
         config.finalize(
           add_point_source=parameters.add_point_source,
           fix_centroid=parameters.fix_centroid,
+          prior_axrat_mean=parameters.prior_axrat_mean,
           prior_axrat_stddev=parameters.prior_axrat_stddev,
           use_shapelet_psf=parameters.use_shapelet_psf,
         )

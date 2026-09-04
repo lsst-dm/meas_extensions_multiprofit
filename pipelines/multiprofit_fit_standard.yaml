@@ -5,6 +5,7 @@ imports:
 parameters:
   add_point_source: False
   fix_centroid: False
+  prior_axrat_mean: null
   prior_axrat_stddev: null
   sersic_init_table: deepCoadd_Exp_multiprofit
   use_cell_coadds: False
@@ -21,8 +22,9 @@ tasks:
         config.finalize(
           add_point_source=parameters.add_point_source,
           fix_centroid=parameters.fix_centroid,
-          use_shapelet_psf=parameters.use_shapelet_psf,
+          prior_axrat_mean=parameters.prior_axrat_mean,
           prior_axrat_stddev=parameters.prior_axrat_stddev,
+          use_shapelet_psf=parameters.use_shapelet_psf,
         )
   fitDeblendedObjectsSersic:
     class: lsst.meas.extensions.multiprofit.pipetasks_fit.MultiProFitCoaddSersicFitTask
