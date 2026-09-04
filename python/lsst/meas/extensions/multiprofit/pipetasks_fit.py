@@ -314,12 +314,6 @@ class MultiProFitCoaddObjectFitConfig(
                 ):
                     comp.prior_axrat_stddev = stddev
 
-        group = self._get_component_group()
-        centroids = group.centroids["default"]
-        centroids.x.fixed = True
-        centroids.y.fixed = True
-        self.connections.name_table += model_names_default.fixed_cen
-
     def setDefaults(self):
         super().setDefaults()
         self.fit_coadd_multiband.retarget(MultiProFitSourceTask)
