@@ -705,3 +705,104 @@ class MultiProFitCoaddExpDeVFitTask(MultiProFitCoaddObjectFitTask):
 
     ConfigClass = MultiProFitCoaddExpDeVFitConfig
     _DefaultName = "multiProFitCoaddExpDeVFit"
+
+
+class MultiProFitCoaddTwoGaussianFitConfig(
+    MultiProFitCoaddObjectFitConfig,
+    pipelineConnections=MultiProFitCoaddObjectFitConnections,
+):
+    """MultiProFit single Exponential+DeVaucouleurs model fit task config."""
+
+    @classmethod
+    def get_model_name_default(cls) -> str:
+        return f"Two{model_names_default.gauss}"
+
+    @classmethod
+    def get_model_name_full(cls) -> str:
+        return "Two Gaussian"
+
+    def make_default_model_config(self) -> ModelConfig:
+        config_group = ComponentGroupConfig(
+            components_gauss={
+                "gauss1": self.make_gaussian_component(sigma=0.5),
+                "gauss2": self.make_gaussian_component(sigma=2.0),
+            },
+        )
+        return self.make_single_model_config(group=config_group)
+
+    def setDefaults(self):
+        super().setDefaults()
+        self.fit_coadd_multiband.action_initializer = MakeCachedChainedInitializerAction()
+        self.fit_coadd_multiband.config_model = self.make_default_model_config()
+        self.name_model = self.get_model_name_default()
+        self.connections.name_table = self.name_model
+
+        size_priors = self.fit_coadd_multiband.size_priors
+        size_priors["gauss1"] = MagnitudeDependentSizePriorConfig(
+            intercept_mag=21,
+            slope_median_per_mag=-0.14,
+        )
+        size_priors["gauss2"] = MagnitudeDependentSizePriorConfig(
+            intercept_mag=23,
+            slope_median_per_mag=-0.14,
+        )
+
+
+class MultiProFitCoaddTwoGaussianFitTask(MultiProFitCoaddObjectFitTask):
+    """MultiProFit two Gaussian model fit task."""
+
+    ConfigClass = MultiProFitCoaddTwoGaussianFitConfig
+    _DefaultName = "multiProFitCoaddTwoGaussianFit"
+
+
+class MultiProFitCoaddThreeGaussianFitConfig(
+    MultiProFitCoaddObjectFitConfig,
+    pipelineConnections=MultiProFitCoaddObjectFitConnections,
+):
+    """MultiProFit single Exponential+DeVaucouleurs model fit task config."""
+
+    @classmethod
+    def get_model_name_default(cls) -> str:
+        return f"Three{model_names_default.gauss}"
+
+    @classmethod
+    def get_model_name_full(cls) -> str:
+        return "Three Gaussian"
+
+    def make_default_model_config(self) -> ModelConfig:
+        config_group = ComponentGroupConfig(
+            components_gauss={
+                "gauss1": self.make_gaussian_component(sigma=0.5),
+                "gauss2": self.make_gaussian_component(sigma=1.0),
+                "gauss3": self.make_gaussian_component(sigma=2.0),
+            },
+        )
+        return self.make_single_model_config(group=config_group)
+
+    def setDefaults(self):
+        super().setDefaults()
+        self.fit_coadd_multiband.action_initializer = MakeCachedChainedInitializerAction()
+        self.fit_coadd_multiband.config_model = self.make_default_model_config()
+        self.name_model = self.get_model_name_default()
+        self.connections.name_table = self.name_model
+
+        size_priors = self.fit_coadd_multiband.size_priors
+        size_priors["gauss1"] = MagnitudeDependentSizePriorConfig(
+            intercept_mag=21,
+            slope_median_per_mag=-0.14,
+        )
+        size_priors["gauss2"] = MagnitudeDependentSizePriorConfig(
+            intercept_mag=22,
+            slope_median_per_mag=-0.14,
+        )
+        size_priors["gauss3"] = MagnitudeDependentSizePriorConfig(
+            intercept_mag=23,
+            slope_median_per_mag=-0.14,
+        )
+
+
+class MultiProFitCoaddThreeGaussianFitTask(MultiProFitCoaddObjectFitTask):
+    """MultiProFit three Gaussian model fit task."""
+
+    ConfigClass = MultiProFitCoaddThreeGaussianFitConfig
+    _DefaultName = "multiProFitCoaddThreeGaussianFit"
