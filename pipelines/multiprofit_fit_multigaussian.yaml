@@ -1,0 +1,28 @@
+description: |
+  Fit a three Gaussian model without a PSF to every object.
+parameters:
+  fix_centroid: False
+  prior_axrat_stddev: null
+  use_cell_coadds: False
+  use_fixed_gaussian_psf: True
+tasks:
+  fitDeblendedObjectsThreeGaussianFixedPsf:
+    class: lsst.meas.extensions.multiprofit.pipetasks_fit.MultiProFitCoaddThreeGaussianFitTask
+    config:
+      connections.cat_ref: object_ref_measurement
+      connections.cats_meas: object_unforced_measurement
+      connections.coadds: deep_coadd
+      connections.coadds_cell: deep_coadd_cell_predetection
+      connections.backgrounds: deep_coadd_background
+      connections.models_scarlet: object_scarlet_models
+      connections.cat_output: object_three_gaussian_multiprofit
+      idGenerator.release_id: parameters.release_id
+      use_cell_coadds: parameters.use_cell_coadds
+
+      python: |
+        from lsst.meas.extensions.multiprofit.pipetasks_fit import InputConfig
+        config.finalize(
+          fix_centroid=parameters.fix_centroid,
+          prior_axrat_stddev=parameters.prior_axrat_stddev,
+          use_fixed_gaussian_psf=True,
+        )
