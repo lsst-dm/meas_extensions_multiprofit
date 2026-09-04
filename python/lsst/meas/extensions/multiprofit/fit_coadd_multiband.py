@@ -26,6 +26,7 @@ __all__ = (
     "CatalogExposurePsfs",
     "CatalogExposureSourcesDataclassConfig",
     "CatalogExposureSourcesWcsBase",
+    "GaussianPsfComponentsAction",
     "InitialInputData",
     "MagnitudeDependentSizePriorConfig",
     "MakeBasicInitializerAction",
@@ -108,6 +109,35 @@ class PsfComponentsActionBase(ConfigurableAction):
 
     def __call__(self, source: Mapping[str, Any], *args: Any, **kwargs: Any) -> list[g2.Gaussian]:
         raise NotImplementedError("This method must be overloaded in subclasses")
+
+
+class GaussianPsfComponentsAction(PsfComponentsActionBase):
+    """Action to return a fixed size single Gaussian PSF.
+    """
+
+    sigma = pexConfig.RangeField[float](
+        doc="Size of the PSF",
+        default=0.8,
+        min=0,
+        inclusiveMin=True,
+    )
+
+    def get_schema(self) -> list[str]:
+        return []
+
+    def __call__(self, source: Mapping[str, Any], *args: Any, **kwargs: Any) -> list[g2.Gaussian]:
+        sigma_sq = self.sigma**2
+        gaussian = g2.Gaussian(
+            ellipse=g2.Ellipse(
+                g2.Covariance(
+                    sigma_x_sq=sigma_sq,
+                    sigma_y_sq=sigma_sq,
+                    cov_xy=0,
+                )
+            ),
+            integral=g2.GaussianIntegralValue(value=1.0),
+        )
+        return [gaussian]
 
 
 class SourceTablePsfFitSuccessAction(PsfFitSuccessActionBase):
