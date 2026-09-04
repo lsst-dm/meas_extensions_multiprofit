@@ -1222,11 +1222,12 @@ class CatalogExposurePsfs(CatalogExposureSourcesWcsBase):
         is_deblended_child = parent != 0
         if self.config_fit.fit_isolated_only:
             if is_deblended_child:
-                n_children = self.catalog.find(parent)["deblend_nChild"]
-                raise IsBlendedError(
-                    f"source {source[self.config_fit.column_id]} is part of a blend with {n_children}"
-                    f" children; not fitting"
-                )
+                n_children = source["deblend_blendNChild"]
+                if n_children > 1:
+                    raise IsBlendedError(
+                        f"source {source[self.config_fit.column_id]} is part of a blend with {n_children}"
+                        f" children; not fitting"
+                    )
 
         footprint = source.getFootprint()
         bbox = footprint.getBBox()
