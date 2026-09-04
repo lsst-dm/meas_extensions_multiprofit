@@ -54,6 +54,7 @@ import numpy as np
 import pydantic
 from astropy.table import Table
 
+import lsst.afw.geom
 import lsst.afw.table as afwTable
 import lsst.gauss2d as g2
 import lsst.gauss2d.fit as g2f
@@ -659,6 +660,7 @@ class BasicModelInitializer(ModelInitializer):
         set_flux_limits = kwargs.pop("set_flux_limits", True)
         flux_init_min = kwargs.pop("value_init_min", 1e-10)
         flux_limit_min = kwargs.pop("flux_limit_min", 1e-12)
+        wcs = kwargs.pop("wcs")
         if kwargs:
             raise ValueError(f"Unexpected {kwargs=}")
         # TODO: cast(self.config, MultiProFitSourceConfig) seems broken
@@ -690,7 +692,7 @@ class BasicModelInitializer(ModelInitializer):
         else:
             catexps_obs = catexps
 
-        use_sky_coords = config_data.config.config_fit.use_sky_coords
+        use_sky_coords = config.use_sky_coords
 
         for idx_obs, observation in enumerate(model.data):
             coordsys = observation.image.coordsys
@@ -751,7 +753,7 @@ class BasicModelInitializer(ModelInitializer):
 
         if use_sky_coords:
             cen_x, cen_y, sig_x, sig_y, rho = self.convert_coordinates(
-                kwargs["wcs"],
+                wcs,
                 cen_x,
                 cen_y,
                 sig_x,
@@ -1623,6 +1625,8 @@ class MultiProFitSourceTask(fitMB.CoaddMultibandFitSubTask):
                 break
         if wcs is None:
             raise RuntimeError(f"Could not find valid wcs in any of {catexps=}")
+        elif isinstance(wcs, lsst.afw.geom.SkyWcs):
+            wcs = WrappedSkyWcs(wcs)
         fitter = MultiProFitSourceFitter(wcs=wcs, initializer=initializer)
         return fitter
 
