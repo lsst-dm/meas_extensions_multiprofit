@@ -181,6 +181,7 @@ class MultiProFitCoaddObjectFitConfig(
         fix_centroid: bool = False,
         use_fixed_gaussian_psf: bool = False,
         use_shapelet_psf: bool = False,
+        prior_axrat_mean: float | str | None = None,
         prior_axrat_stddev: float | str | None = None,
     ):
         """Apply runtime configuration changes to this config.
@@ -195,6 +196,9 @@ class MultiProFitCoaddObjectFitConfig(
             Whether to use a fixed radius Gaussian PSF.
         use_shapelet_psf
             Whether to initialize PSF parameters from prior shapelet fits.
+        prior_axrat_mean
+            The mean for the axis ratio prior. Ignored if None,
+            otherwise it must be convertible to a float.
         prior_axrat_stddev
             The standard deviation for the axis ratio prior. Ignored if None,
             otherwise it must be convertible to a float.
@@ -209,8 +213,11 @@ class MultiProFitCoaddObjectFitConfig(
             self.use_fixed_gaussian_psf()
         if use_shapelet_psf:
             self.use_shapelet_psf()
-        if prior_axrat_stddev is not None:
-            self.set_prior_axrat_stddev(float(prior_axrat_stddev))
+        if prior_axrat_mean is not None or prior_axrat_stddev is not None:
+            self.set_prior_axrat(
+                mean=float(prior_axrat_mean) if prior_axrat_mean is not None else None,
+                stddev=float(prior_axrat_stddev) if prior_axrat_stddev is not None else None,
+            )
 
     def fix_centroid(self):
         """Fix (freeze) the source centroid parameters."""
@@ -298,6 +305,27 @@ class MultiProFitCoaddObjectFitConfig(
             }
         )
 
+    def set_prior_axrat(self, mean: float | None = None, stddev: float | None = None) -> None:
+        """Set the standard deviation for all axis ratio priors.
+
+        Parameters
+        ----------
+        stddev
+            The standard deviation.
+        """
+        has_mean = mean is not None
+        has_stddev = stddev is not None
+        for source in self.fit_coadd_multiband.config_model.sources.values():
+            for group in source.component_groups.values():
+                for comp in itertools.chain(
+                    group.components_gauss.values(),
+                    group.components_sersic.values(),
+                ):
+                    if has_mean:
+                        comp.prior_axrat_mean = mean
+                    if has_stddev:
+                        comp.prior_axrat_stddev = stddev
+
     def set_prior_axrat_stddev(self, stddev: float) -> None:
         """Set the standard deviation for all axis ratio priors.
 
@@ -306,13 +334,8 @@ class MultiProFitCoaddObjectFitConfig(
         stddev
             The standard deviation.
         """
-        for source in self.fit_coadd_multiband.config_model.sources.values():
-            for group in source.component_groups.values():
-                for comp in itertools.chain(
-                    group.components_gauss.values(),
-                    group.components_sersic.values(),
-                ):
-                    comp.prior_axrat_stddev = stddev
+        # TODO: Deprecate this; it's redundant now
+        self.set_prior_axrat(stddev=stddev)
 
     def setDefaults(self):
         super().setDefaults()
