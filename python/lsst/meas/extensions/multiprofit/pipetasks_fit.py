@@ -67,6 +67,7 @@ from lsst.pipe.tasks.fit_coadd_psf import CoaddPsfFitConfig, CoaddPsfFitConnecti
 
 from .fit_coadd_multiband import (
     CachedBasicModelInitializer,
+    GaussianPsfComponentsAction,
     MagnitudeDependentSizePriorConfig,
     MakeBasicInitializerAction,
     ModelInitializer,
@@ -92,6 +93,7 @@ model_names_default = SimpleNamespace(
     deV="DeV",
     sersic="Sersic",
     fixed_cen="FixedCen",
+    fixed_gaussian_psf="FixedGaussianPsf",
     shapelet_psf="ShapeletPsf",
 )
 
@@ -177,6 +179,7 @@ class MultiProFitCoaddObjectFitConfig(
         self,
         add_point_source: bool = False,
         fix_centroid: bool = False,
+        use_fixed_gaussian_psf: bool = False,
         use_shapelet_psf: bool = False,
         prior_axrat_stddev: float | str | None = None,
     ):
@@ -188,6 +191,8 @@ class MultiProFitCoaddObjectFitConfig(
             Whether to add a point source component.
         fix_centroid
             Whether to fix the centroid.
+        use_fixed_gaussian_psf
+            Whether to use a fixed radius Gaussian PSF.
         use_shapelet_psf
             Whether to initialize PSF parameters from prior shapelet fits.
         prior_axrat_stddev
@@ -198,6 +203,10 @@ class MultiProFitCoaddObjectFitConfig(
             self.add_point_source()
         if fix_centroid:
             self.fix_centroid()
+        if use_fixed_gaussian_psf and use_shapelet_psf:
+            raise ValueError("Can't specify both use_fixed_gaussian_psf and use_shapelet_psf")
+        if use_fixed_gaussian_psf:
+            self.use_fixed_gaussian_psf()
         if use_shapelet_psf:
             self.use_shapelet_psf()
         if prior_axrat_stddev is not None:
@@ -234,6 +243,15 @@ class MultiProFitCoaddObjectFitConfig(
             size_x=ParameterConfig(value_initial=0.0, fixed=True),
             size_y=ParameterConfig(value_initial=0.0, fixed=True),
             rho=ParameterConfig(value_initial=0.0, fixed=True),
+        )
+
+    @staticmethod
+    def make_gaussian_component(sigma: float = 1.0) -> GaussianComponentConfig:
+        """Make a point source component config (zero-size Gaussian)."""
+        return GaussianComponentConfig(
+            size_x=ParameterConfig(value_initial=sigma, fixed=False),
+            size_y=ParameterConfig(value_initial=sigma, fixed=False),
+            rho=ParameterConfig(value_initial=0.0, fixed=False),
         )
 
     @staticmethod
@@ -311,6 +329,11 @@ class MultiProFitCoaddObjectFitConfig(
         self.fit_coadd_multiband.config_model = self.make_default_model_config()
         self.name_model = self.get_model_name_default()
         self.connections.name_table = self.name_model
+
+    def use_fixed_gaussian_psf(self):
+        """Reconfigure self to use a fixed Gaussian PSF."""
+        self.fit_coadd_multiband.action_psf = GaussianPsfComponentsAction()
+        self.drop_psf_connection = True
 
     def use_shapelet_psf(self):
         """Reconfigure self to use prior shapelet PSF fit parameters."""
