@@ -770,9 +770,13 @@ class BasicModelInitializer(ModelInitializer):
         # TODO: Add centroid prior
         priors_gauss, priors_shape = self.get_priors_type(model)
         for prior in priors_shape:
+            if prior.prior_size is None:
+                continue
             if has_priors_mag and ((prior_adjustments := priors_shape_mag.get(prior)) is not None):
                 mag_dep_prior, prior_shape_new = prior_adjustments
                 prior_size_new = prior_shape_new.prior_size
+                if prior_size_new is None:
+                    continue
                 # the size-apparent mag relation probably flattens
                 # for very bright/faint objects - maybe not so
                 # sharply, but clipping a broad mag range ought to be fine
