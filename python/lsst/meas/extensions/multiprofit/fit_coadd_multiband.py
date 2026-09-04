@@ -1620,7 +1620,9 @@ class MultiProFitSourceTask(fitMB.CoaddMultibandFitSubTask):
             raise ValueError("Must provide at least one catexp")
         catexps_conv: list[CatalogExposurePsfs] = [None] * n_catexps
         channels: list[g2f.Channel] = [None] * n_catexps
-        config = cast(self.config, MultiProFitSourceConfig)
+        # TODO: cast(self.config, MultiProFitSourceConfig) seems broken
+        # ... it changes __class__ to pexConfig.ConfigMeta??
+        config: MultiProFitSourceConfig = self.config
         for idx, catexp in enumerate(catexps):
             if not isinstance(catexp, CatalogExposurePsfs):
                 catexp = fitter.make_CatalogExposurePsfs(catexp, config=config)
