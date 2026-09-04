@@ -52,7 +52,7 @@ from typing import Any, ClassVar, cast
 import astropy.units as u
 import numpy as np
 import pydantic
-from astropy.table import Table
+from astropy.table import Row, Table
 
 import lsst.afw.geom
 import lsst.afw.table as afwTable
@@ -72,10 +72,11 @@ from lsst.multiprofit.fitting.fit_source import (
     CatalogSourceFitterConfigData,
 )
 from lsst.multiprofit.modeller import Model
-from lsst.multiprofit.utils import frozen_arbitrary_allowed_config, get_params_uniq
+from lsst.multiprofit.utils import frozen_arbitrary_allowed_config, get_params_uniq, set_config_from_dict
 from lsst.pex.config.configurableActions import ConfigurableAction, ConfigurableActionField
 
 from .errors import IsBlendedError, IsParentError, NotPrimaryError
+from .fit_coadd_psf import MultiProFitPsfConfig
 from .input_config import InputConfig
 from .utils import get_spanned_image
 from .wrappedskywcs import WrappedSkyWcs
@@ -1474,8 +1475,9 @@ class MultiProFitSourceFitter(CatalogSourceFitterABC):
             **kwargs,
         )
 
+    @classmethod
     def make_CatalogExposurePsfs(
-        self,
+        cls,
         catexp: fitMB.CatalogExposureInputs,
         config: MultiProFitSourceConfig,
     ) -> CatalogExposurePsfs:
@@ -1493,12 +1495,17 @@ class MultiProFitSourceFitter(CatalogSourceFitterABC):
         catexp_psf
             The resulting CatalogExposurePsfs.
         """
+        config_fit_psf = MultiProFitPsfConfig()
+        if (config_dict := catexp.table_psf_fits.meta.get("config")) is not None:
+            set_config_from_dict(config_fit_psf, config_dict)
+        psf_model_data = CatalogPsfFitterConfigData(config=config_fit_psf)
         catexp_psf = CatalogExposurePsfs(
             # dataclasses.asdict(catexp)_makes a recursive deep copy.
             # That must be avoided.
             **{key: getattr(catexp, key) for key in catexp.__dataclass_fields__.keys()},
             channel=g2f.Channel.get(catexp.band),
             config_fit=config,
+            psf_model_data=psf_model_data,
         )
         return catexp_psf
 
@@ -1701,7 +1708,9 @@ class MultiProFitSourceTask(fitMB.CoaddMultibandFitSubTask):
         config: MultiProFitSourceConfig = self.config
         for idx, catexp in enumerate(catexps):
             if not isinstance(catexp, CatalogExposurePsfs):
-                catexp = fitter.make_CatalogExposurePsfs(catexp, config=config)
+                catexp = (fitter if fitter else MultiProFitSourceFitter).make_CatalogExposurePsfs(
+                    catexp, config=config,
+                )
             catexps_conv[idx] = catexp
             channels[idx] = catexp.channel
         config_data = CatalogSourceFitterConfigData(channels=channels, config=config)
