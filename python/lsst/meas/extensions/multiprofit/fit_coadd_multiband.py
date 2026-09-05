@@ -23,9 +23,9 @@ __all__ = (
     "BasicModelInitializer",
     "CachedBasicModelInitializer",
     "CatalogExposurePsfs",
-    "CatalogExposurePsfs",
     "CatalogExposureSourcesDataclassConfig",
     "CatalogExposureSourcesWcsBase",
+    "CatalogExposureSourcesWcsPsf",
     "GaussianPsfComponentsAction",
     "InitialInputData",
     "MagnitudeDependentSizePriorConfig",
@@ -47,7 +47,7 @@ import math
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping, Sequence
 from functools import cached_property
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar
 
 import astropy.units as u
 import numpy as np
@@ -114,8 +114,7 @@ class PsfComponentsActionBase(ConfigurableAction):
 
 
 class GaussianPsfComponentsAction(PsfComponentsActionBase):
-    """Action to return a fixed size single Gaussian PSF.
-    """
+    """Action to return a fixed size single Gaussian PSF."""
 
     sigma = pexConfig.RangeField[float](
         doc="Size of the PSF",
@@ -1069,12 +1068,10 @@ CatalogExposureSourcesDataclassConfig = pydantic.ConfigDict(arbitrary_types_allo
 class CatalogExposureSourcesWcsBase(fitMB.CatalogExposureInputs, ABC):
     """A CatalogExposureSources with a wrapped WCS."""
 
-    config_fit: MultiProFitSourceConfig = pydantic.Field(title="Config for fitting options")
-    psf_fit_in_sky_coords: bool = pydantic.Field(
-        title="Whether the PSF fit table is in sky coordinates instead of pixel",
-        default=False,
-    )
-    psf_model_data: CatalogPsfFitterConfigData = pydantic.Field(title="The PSF model data for this exposure")
+    @cached_property
+    def channel(self) -> g2f.Channel:
+        """Return the channel for the band."""
+        return g2f.Channel.get(self.band)
 
     @abstractmethod
     def get_wcs(self) -> WrappedWcsBase:
@@ -1083,39 +1080,17 @@ class CatalogExposureSourcesWcsBase(fitMB.CatalogExposureInputs, ABC):
     def get_local_cd_matrix(self, params: Mapping[str, Any]):
         return self.get_wcs().get_cd_matrix()
 
-    def initialize_psf_external(self, params):
-        psf_model = self.psf_model_data.psf_model
-        try:
-            gaussians = self.config_fit.action_psf(params)
-        except PsfRebuildFitFlagError:
-            return None
-        n_comps = len(psf_model.components)
-        fluxes = [0.0] * n_comps
-        params_flux, is_frac = self._psf_flux_params
-        for idx_comp, (comp, gaussian) in enumerate(zip(psf_model.components, gaussians)):
-            ellipse_out = comp.ellipse
-            ellipse_in = gaussian.ellipse
-            ellipse_out.sigma_x = ellipse_in.sigma_x
-            ellipse_out.sigma_y = ellipse_in.sigma_y
-            ellipse_out.rho = ellipse_in.rho
-            fluxes[idx_comp] = gaussian.integral.value
-        # Apparently negative fluxes are possible. Not much can be done to
-        # fix that but set them to a tiny value (zero might work)
-        fluxes = np.clip(fluxes, 1e-3, np.inf)
-        flux_total = sum(fluxes)
-        if is_frac:
-            flux_remaining = 1.0
-            for flux, param_frac in zip(fluxes, params_flux[:-1]):
-                flux_component = flux / flux_total
-                param_frac.value = flux_component / flux_remaining
-                flux_remaining -= flux_component
-        else:
-            for flux, param_flux in zip(fluxes, params_flux):
-                param_flux.value = flux / flux_total
 
-    @cached_property
-    def psf_sigma_subtract(self) -> float:
-        return self.config_fit.psf_sigma_subtract
+@pydantic.dataclasses.dataclass(frozen=True, kw_only=True, config=CatalogExposureSourcesDataclassConfig)
+class CatalogExposureSourcesWcsPsf(CatalogExposureSourcesWcsBase):
+    """A CatalogExposureSourcesWcs with a PSF model fit table."""
+
+    config_fit: MultiProFitSourceConfig = pydantic.Field(title="Config for fitting options")
+    psf_fit_in_sky_coords: bool = pydantic.Field(
+        title="Whether the PSF fit table is in sky coordinates instead of pixel",
+        default=False,
+    )
+    psf_model_data: CatalogPsfFitterConfigData = pydantic.Field(title="The PSF model data for this exposure")
 
     def get_psf_model(self, params: Mapping[str, Any]) -> g2f.PsfModel | None:
         psf_model = self.psf_model_data.psf_model
@@ -1175,8 +1150,63 @@ class CatalogExposureSourcesWcsBase(fitMB.CatalogExposureInputs, ABC):
 
         return psf_model
 
+    def initialize_psf_external(self, params: Mapping[str, Any]):
+        """Initialize the PSF model from a non-multiprofit source.
+
+        Parameters
+        ----------
+        params
+            Values to pass to the PSF initializer.
+        """
+        psf_model = self.psf_model_data.psf_model
+        try:
+            gaussians = self.config_fit.action_psf(params)
+        except PsfRebuildFitFlagError:
+            return None
+        n_comps = len(psf_model.components)
+        fluxes = [0.0] * n_comps
+        params_flux, is_frac = self._psf_flux_params
+        for idx_comp, (comp, gaussian) in enumerate(zip(psf_model.components, gaussians)):
+            ellipse_out = comp.ellipse
+            ellipse_in = gaussian.ellipse
+            ellipse_out.sigma_x = ellipse_in.sigma_x
+            ellipse_out.sigma_y = ellipse_in.sigma_y
+            ellipse_out.rho = ellipse_in.rho
+            fluxes[idx_comp] = gaussian.integral.value
+        # Apparently negative fluxes are possible. Not much can be done to
+        # fix that but set them to a tiny value (zero might work)
+        fluxes = np.clip(fluxes, 1e-3, np.inf)
+        flux_total = sum(fluxes)
+        if is_frac:
+            flux_remaining = 1.0
+            for flux, param_frac in zip(fluxes, params_flux[:-1]):
+                flux_component = flux / flux_total
+                param_frac.value = flux_component / flux_remaining
+                flux_remaining -= flux_component
+        else:
+            for flux, param_flux in zip(fluxes, params_flux):
+                param_flux.value = flux / flux_total
+
+    @cached_property
+    def psf_model_instance(self) -> g2f.PsfModel:
+        """Return the cached PsfModel instance."""
+        return self.psf_model_data.psf_model
+
+    @cached_property
+    def psf_sigma_subtract(self) -> float:
+        return self.config_fit.psf_sigma_subtract
+
     @cached_property
     def _psf_flux_params(self) -> tuple[list[g2f.ParameterD], bool]:
+        """Get the gauss2d_fit flux parameters for the PSF model.
+
+        Returns
+        -------
+        params_flux
+            The flux parameters from the PSF model.
+        is_frac
+            Whether the model's free parameters are flux fractions.
+        """
         psf_model = self.psf_model_data.psf_model
         n_comps = len(psf_model.components)
         params_flux = [None] * n_comps
@@ -1214,14 +1244,8 @@ class CatalogExposureSourcesWcsBase(fitMB.CatalogExposureInputs, ABC):
 
 
 @pydantic.dataclasses.dataclass(frozen=True, kw_only=True, config=CatalogExposureSourcesDataclassConfig)
-class CatalogExposurePsfs(CatalogExposureSourcesWcsBase):
-    """A CatalogExposure with afw Sources and Wcs."""
-
-    channel: g2f.Channel = pydantic.Field(title="The channel of the observation")
-
-    @cached_property
-    def band(self) -> str:
-        return self.channel.name
+class CatalogExposurePsfs(CatalogExposureSourcesWcsPsf):
+    """A CatalogExposure with PSF models, afw Sources and Wcs."""
 
     def get_local_cd_matrix(self, params: Mapping[str, Any]):
         cd_matrix = np.array(
@@ -1237,18 +1261,6 @@ class CatalogExposurePsfs(CatalogExposureSourcesWcsBase):
             )
         )
         return cd_matrix
-
-    def get_wcs(self) -> WrappedWcsBase:
-        return self.wcs
-
-    @cached_property
-    def psf_model_instance(self) -> g2f.PsfModel:
-        """Return the cached PsfModel instance."""
-        return self.psf_model_data.psf_model
-
-    @cached_property
-    def wcs(self) -> WrappedSkyWcs:
-        return WrappedSkyWcs(wcs=self.exposure.wcs)
 
     def get_source_observation(self, source, **kwargs) -> g2f.ObservationD | None:
         parent = source["parent"]
@@ -1328,6 +1340,13 @@ class CatalogExposurePsfs(CatalogExposureSourcesWcsBase):
             channel=self.channel,
         )
         return obs
+
+    def get_wcs(self) -> WrappedWcsBase:
+        return self.wcs
+
+    @cached_property
+    def wcs(self) -> WrappedSkyWcs:
+        return WrappedSkyWcs(wcs=self.exposure.wcs)
 
 
 class MultiProFitSourceFitter(CatalogSourceFitterABC):
@@ -1519,12 +1538,11 @@ class MultiProFitSourceFitter(CatalogSourceFitterABC):
     ):
         if self.do_post_fit_plot:
             import matplotlib.pyplot as plt
-            from lsst.multiprofit.plotting.reference_data import bands_weights_lsst
-            from lsst.multiprofit.plotting import plot_model_rgb, plot_model_singleband
 
-            model_eval = g2f.ModelD(
-                data=model.data, psfmodels=model.psfmodels, sources=model.sources
-            )
+            from lsst.multiprofit.plotting import plot_model_rgb, plot_model_singleband
+            from lsst.multiprofit.plotting.reference_data import bands_weights_lsst
+
+            model_eval = g2f.ModelD(data=model.data, psfmodels=model.psfmodels, sources=model.sources)
             model_eval.setup_evaluators(evaluatormode=g2f.EvaluatorMode.image)
             model_eval.evaluate()
 
@@ -1709,7 +1727,8 @@ class MultiProFitSourceTask(fitMB.CoaddMultibandFitSubTask):
         for idx, catexp in enumerate(catexps):
             if not isinstance(catexp, CatalogExposurePsfs):
                 catexp = (fitter if fitter else MultiProFitSourceFitter).make_CatalogExposurePsfs(
-                    catexp, config=config,
+                    catexp,
+                    config=config,
                 )
             catexps_conv[idx] = catexp
             channels[idx] = catexp.channel
